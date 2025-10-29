@@ -1,0 +1,58 @@
+{
+  "name": "arke-ingest-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-29",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // R2 bucket for staging uploaded files
+  "r2_buckets": [
+    {
+      "binding": "STAGING_BUCKET",
+      "bucket_name": "arke-staging"
+      // NOTE: Create bucket with: wrangler r2 bucket create arke-staging
+    }
+  ],
+
+  // Queue for batch processing jobs
+  "queues": {
+    "producers": [
+      {
+        "binding": "BATCH_QUEUE",
+        "queue": "arke-batch-jobs"
+        // NOTE: Create queue with: wrangler queues create arke-batch-jobs
+      }
+    ]
+  },
+
+  // KV for tracking batch upload state
+  "kv_namespaces": [
+    {
+      "binding": "BATCH_STATE",
+      "id": "a8e9fd2cc1de41669d39effbf63b9a25"
+    }
+  ],
+
+  // Environment variables
+  "vars": {
+    "PRESIGNED_URL_EXPIRY": "3600",  // 1 hour
+    "MAX_FILE_SIZE": "5368709120",   // 5 GB in bytes
+    "MAX_BATCH_SIZE": "107374182400" // 100 GB in bytes
+  },
+
+  // Secrets (set with: wrangler secret put <NAME>)
+  // - R2_ACCOUNT_ID
+  // - R2_ACCESS_KEY_ID
+  // - R2_SECRET_ACCESS_KEY
+
+  "routes": [
+    {
+      "pattern": "ingest.arke.institute",
+      "custom_domain": true
+    }
+  ],
+
+  // Local development settings
+  "dev": {
+    "port": 8787
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "arke-ingest-worker",
+  "version": "0.1.0",
+  "description": "Cloudflare Worker for handling file uploads to R2 and batch job queueing",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.6.14",
+    "ulidx": "^2.4.1",
+    "aws4fetch": "^1.0.20"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.94.0"
+  }
+}
