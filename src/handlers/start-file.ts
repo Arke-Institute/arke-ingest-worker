@@ -11,7 +11,7 @@ import type {
   FileState,
 } from '../types';
 import { MULTIPART_THRESHOLD, PART_SIZE } from '../types';
-import { loadBatchState, saveBatchState } from '../lib/batch-state';
+import { loadBatchState, updateBatchState } from '../lib/batch-state';
 import { generatePresignedPutUrl, generatePresignedUploadPartUrls } from '../lib/presigned';
 import { validateFileExtension, validateFileSize, validateLogicalPath } from '../lib/validation';
 
@@ -85,19 +85,20 @@ export async function handleStartFileUpload(
         numParts
       );
 
-      // Track file in batch state
-      const fileState: FileState = {
-        r2_key: r2Key,
-        file_name,
-        file_size,
-        logical_path,
-        upload_type: 'multipart',
-        upload_id: multipartUpload.uploadId,
-        status: 'uploading',
-      };
-
-      state.files.push(fileState);
-      await saveBatchState(c.env.BATCH_STATE, batchId, state);
+      // Atomically add file to batch state (handles concurrent requests)
+      await updateBatchState(c.env.BATCH_STATE, batchId, (state) => {
+        const fileState: FileState = {
+          r2_key: r2Key,
+          file_name,
+          file_size,
+          logical_path,
+          upload_type: 'multipart',
+          upload_id: multipartUpload.uploadId,
+          status: 'uploading',
+        };
+        state.files.push(fileState);
+        return fileState;
+      });
 
       // Return response
       const response: StartFileUploadResponse = {
@@ -113,18 +114,19 @@ export async function handleStartFileUpload(
       // SIMPLE UPLOAD
       const presignedUrl = await generatePresignedPutUrl(c.env, r2Key, content_type);
 
-      // Track file in batch state
-      const fileState: FileState = {
-        r2_key: r2Key,
-        file_name,
-        file_size,
-        logical_path,
-        upload_type: 'simple',
-        status: 'uploading',
-      };
-
-      state.files.push(fileState);
-      await saveBatchState(c.env.BATCH_STATE, batchId, state);
+      // Atomically add file to batch state (handles concurrent requests)
+      await updateBatchState(c.env.BATCH_STATE, batchId, (state) => {
+        const fileState: FileState = {
+          r2_key: r2Key,
+          file_name,
+          file_size,
+          logical_path,
+          upload_type: 'simple',
+          status: 'uploading',
+        };
+        state.files.push(fileState);
+        return fileState;
+      });
 
       // Return response
       const response: StartFileUploadResponse = {

@@ -54,5 +54,9 @@
   // Local development settings
   "dev": {
     "port": 8787
+  },
+
+  "observability": {
+    "enabled": true
   }
 }
