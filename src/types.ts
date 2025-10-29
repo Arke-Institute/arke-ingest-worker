@@ -13,8 +13,8 @@ export interface Env {
   // Queue for batch processing jobs
   BATCH_QUEUE: Queue;
 
-  // KV for tracking batch state
-  BATCH_STATE: KVNamespace;
+  // Durable Object for tracking batch state (atomic, no race conditions)
+  BATCH_STATE_DO: DurableObjectNamespace;
 
   // Environment variables
   R2_ACCOUNT_ID: string;
@@ -156,7 +156,7 @@ export const ALLOWED_EXTENSIONS = [
   '.tiff', '.tif',
   '.jpg', '.jpeg', '.png', '.gif', '.bmp',
   '.json', '.xml', '.txt', '.csv',
-  '.pdf'
+  '.pdf', '.md'
 ] as const;
 
 export const MULTIPART_THRESHOLD = 5 * 1024 * 1024; // 5 MB

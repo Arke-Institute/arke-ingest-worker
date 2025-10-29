@@ -24,11 +24,21 @@
     ]
   },
 
-  // KV for tracking batch upload state
-  "kv_namespaces": [
+  // Durable Objects for atomic batch state management
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BATCH_STATE_DO",
+        "class_name": "BatchStateObject"
+      }
+    ]
+  },
+
+  // Migration to create Durable Object namespace with SQLite storage
+  "migrations": [
     {
-      "binding": "BATCH_STATE",
-      "id": "a8e9fd2cc1de41669d39effbf63b9a25"
+      "tag": "v1",
+      "new_sqlite_classes": ["BatchStateObject"]
     }
   ],
 

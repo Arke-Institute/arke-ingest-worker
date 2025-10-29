@@ -9,7 +9,7 @@ import type {
   CompleteFileUploadRequest,
   CompleteFileUploadResponse,
 } from '../types';
-import { updateBatchState } from '../lib/batch-state';
+import { getBatchStateStub } from '../lib/durable-object-helpers';
 
 export async function handleCompleteFileUpload(
   c: Context<{ Bindings: Env }>
@@ -25,46 +25,9 @@ export async function handleCompleteFileUpload(
       return c.json({ error: 'Missing or invalid r2_key' }, 400);
     }
 
-    // Atomically update file status in batch state
-    const result = await updateBatchState(c.env.BATCH_STATE, batchId, (state) => {
-      // Find file in state
-      const file = state.files.find((f) => f.r2_key === r2_key);
-      if (!file) {
-        throw new Error('File not found in batch');
-      }
-
-      if (file.status === 'completed') {
-        // Already completed - idempotent, skip update
-        return { alreadyCompleted: true, file };
-      }
-
-      // Handle multipart completion
-      if (file.upload_type === 'multipart') {
-        if (!upload_id || !parts || !Array.isArray(parts)) {
-          throw new Error('Missing upload_id or parts for multipart upload');
-        }
-
-        if (upload_id !== file.upload_id) {
-          throw new Error('upload_id mismatch');
-        }
-
-        // Validate parts
-        for (const part of parts) {
-          if (
-            typeof part.part_number !== 'number' ||
-            typeof part.etag !== 'string'
-          ) {
-            throw new Error('Invalid parts format');
-          }
-        }
-      }
-
-      // Mark file as completed
-      file.status = 'completed';
-      file.completed_at = new Date().toISOString();
-
-      return { alreadyCompleted: false, file, needsMultipartComplete: file.upload_type === 'multipart' };
-    });
+    // Atomically update file status in batch state (NO race conditions with DO!)
+    const stub = getBatchStateStub(c.env.BATCH_STATE_DO, batchId);
+    const result = await stub.completeFile(r2_key, upload_id, parts);
 
     // Complete multipart upload in R2 (outside the state update)
     if (result.needsMultipartComplete && upload_id && parts) {

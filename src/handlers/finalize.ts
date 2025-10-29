@@ -5,7 +5,7 @@
 
 import type { Context } from 'hono';
 import type { Env, FinalizeBatchResponse, QueueMessage } from '../types';
-import { loadBatchState, saveBatchState } from '../lib/batch-state';
+import { getBatchStateStub } from '../lib/durable-object-helpers';
 
 export async function handleFinalizeBatch(
   c: Context<{ Bindings: Env }>
@@ -13,8 +13,9 @@ export async function handleFinalizeBatch(
   try {
     const batchId = c.req.param('batchId');
 
-    // Load batch state
-    const state = await loadBatchState(c.env.BATCH_STATE, batchId);
+    // Load batch state from Durable Object
+    const stub = getBatchStateStub(c.env.BATCH_STATE_DO, batchId);
+    const state = await stub.getState();
     if (!state) {
       return c.json({ error: 'Batch not found' }, 404);
     }
@@ -75,10 +76,8 @@ export async function handleFinalizeBatch(
     // Enqueue batch job
     await c.env.BATCH_QUEUE.send(queueMessage);
 
-    // Update batch state
-    state.status = 'enqueued';
-    state.enqueued_at = new Date().toISOString();
-    await saveBatchState(c.env.BATCH_STATE, batchId, state);
+    // Update batch state atomically
+    await stub.updateStatus('enqueued', new Date().toISOString());
 
     // Return response
     const response: FinalizeBatchResponse = {

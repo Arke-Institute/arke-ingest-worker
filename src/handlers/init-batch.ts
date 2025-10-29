@@ -6,7 +6,7 @@
 import { ulid } from 'ulidx';
 import type { Context } from 'hono';
 import type { Env, InitBatchRequest, InitBatchResponse, BatchState } from '../types';
-import { saveBatchState } from '../lib/batch-state';
+import { getBatchStateStub } from '../lib/durable-object-helpers';
 import { validateBatchSize, validateLogicalPath } from '../lib/validation';
 
 export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Response> {
@@ -58,8 +58,9 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
       created_at: new Date().toISOString(),
     };
 
-    // Save to KV
-    await saveBatchState(c.env.BATCH_STATE, batchId, batchState);
+    // Save to Durable Object (atomic, no race conditions)
+    const stub = getBatchStateStub(c.env.BATCH_STATE_DO, batchId);
+    await stub.initBatch(batchState);
 
     // Return response
     const response: InitBatchResponse = {

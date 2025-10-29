@@ -13,6 +13,9 @@ import { handleStartFileUpload } from './handlers/start-file';
 import { handleCompleteFileUpload } from './handlers/complete-file';
 import { handleFinalizeBatch } from './handlers/finalize';
 
+// Export Durable Object
+export { BatchStateObject } from './durable-objects/BatchState';
+
 // Create Hono app
 const app = new Hono<{ Bindings: Env }>();
 

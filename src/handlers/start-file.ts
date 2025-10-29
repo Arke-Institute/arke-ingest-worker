@@ -11,7 +11,7 @@ import type {
   FileState,
 } from '../types';
 import { MULTIPART_THRESHOLD, PART_SIZE } from '../types';
-import { loadBatchState, updateBatchState } from '../lib/batch-state';
+import { getBatchStateStub } from '../lib/durable-object-helpers';
 import { generatePresignedPutUrl, generatePresignedUploadPartUrls } from '../lib/presigned';
 import { validateFileExtension, validateFileSize, validateLogicalPath } from '../lib/validation';
 
@@ -52,8 +52,9 @@ export async function handleStartFileUpload(
       return c.json({ error: 'Missing or invalid content_type' }, 400);
     }
 
-    // Load batch state
-    const state = await loadBatchState(c.env.BATCH_STATE, batchId);
+    // Get Durable Object stub
+    const stub = getBatchStateStub(c.env.BATCH_STATE_DO, batchId);
+    const state = await stub.getState();
     if (!state) {
       return c.json({ error: 'Batch not found' }, 404);
     }
@@ -85,20 +86,17 @@ export async function handleStartFileUpload(
         numParts
       );
 
-      // Atomically add file to batch state (handles concurrent requests)
-      await updateBatchState(c.env.BATCH_STATE, batchId, (state) => {
-        const fileState: FileState = {
-          r2_key: r2Key,
-          file_name,
-          file_size,
-          logical_path,
-          upload_type: 'multipart',
-          upload_id: multipartUpload.uploadId,
-          status: 'uploading',
-        };
-        state.files.push(fileState);
-        return fileState;
-      });
+      // Atomically add file to batch state (NO race conditions with DO!)
+      const fileState: FileState = {
+        r2_key: r2Key,
+        file_name,
+        file_size,
+        logical_path,
+        upload_type: 'multipart',
+        upload_id: multipartUpload.uploadId,
+        status: 'uploading',
+      };
+      await stub.addFile(fileState);
 
       // Return response
       const response: StartFileUploadResponse = {
@@ -114,19 +112,16 @@ export async function handleStartFileUpload(
       // SIMPLE UPLOAD
       const presignedUrl = await generatePresignedPutUrl(c.env, r2Key, content_type);
 
-      // Atomically add file to batch state (handles concurrent requests)
-      await updateBatchState(c.env.BATCH_STATE, batchId, (state) => {
-        const fileState: FileState = {
-          r2_key: r2Key,
-          file_name,
-          file_size,
-          logical_path,
-          upload_type: 'simple',
-          status: 'uploading',
-        };
-        state.files.push(fileState);
-        return fileState;
-      });
+      // Atomically add file to batch state (NO race conditions with DO!)
+      const fileState: FileState = {
+        r2_key: r2Key,
+        file_name,
+        file_size,
+        logical_path,
+        upload_type: 'simple',
+        status: 'uploading',
+      };
+      await stub.addFile(fileState);
 
       // Return response
       const response: StartFileUploadResponse = {
