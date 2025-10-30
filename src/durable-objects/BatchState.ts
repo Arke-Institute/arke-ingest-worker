@@ -19,7 +19,8 @@ export class BatchStateObject extends DurableObject {
    * Get current batch state
    */
   async getState(): Promise<BatchState | null> {
-    return await this.ctx.storage.get<BatchState>('state');
+    const state = await this.ctx.storage.get<BatchState>('state');
+    return state ?? null;
   }
 
   /**

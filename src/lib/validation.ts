@@ -54,3 +54,23 @@ export function validateLogicalPath(path: string): boolean {
 
   return true;
 }
+
+/**
+ * Validate processing config
+ * Returns null if valid, error message if invalid
+ */
+export function validateProcessingConfig(config: any): string | null {
+  if (!config || typeof config !== 'object') {
+    return 'processing_config is required and must be an object';
+  }
+
+  if (typeof config.ocr !== 'boolean') {
+    return 'processing_config.ocr must be a boolean';
+  }
+
+  if (typeof config.describe !== 'boolean') {
+    return 'processing_config.describe must be a boolean';
+  }
+
+  return null; // Valid
+}

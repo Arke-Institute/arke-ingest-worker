@@ -4,7 +4,7 @@
  */
 
 import type { Context } from 'hono';
-import type { Env, FinalizeBatchResponse, QueueMessage } from '../types';
+import type { Env, FinalizeBatchResponse, QueueMessage, DirectoryGroup } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
 
 export async function handleFinalizeBatch(
@@ -26,7 +26,7 @@ export async function handleFinalizeBatch(
         batch_id: batchId,
         status: 'enqueued',
         files_uploaded: state.files.length,
-        total_bytes: state.files.reduce((sum, f) => sum + f.file_size, 0),
+        total_bytes: state.files.reduce((sum: number, f: any) => sum + f.file_size, 0),
         r2_prefix: `staging/${batchId}/`,
       };
       return c.json(response, 200);
@@ -39,11 +39,11 @@ export async function handleFinalizeBatch(
     }
 
     // Verify all files are completed
-    const incompleteFiles = state.files.filter((f) => f.status !== 'completed');
+    const incompleteFiles = state.files.filter((f: any) => f.status !== 'completed');
     if (incompleteFiles.length > 0) {
       return c.json({
         error: 'Not all files completed',
-        incomplete: incompleteFiles.map((f) => f.file_name),
+        incomplete: incompleteFiles.map((f: any) => f.file_name),
       }, 400);
     }
 
@@ -52,26 +52,55 @@ export async function handleFinalizeBatch(
     }
 
     // Calculate total bytes
-    const totalBytes = state.files.reduce((sum, f) => sum + f.file_size, 0);
+    const totalBytes = state.files.reduce((sum: number, f: any) => sum + f.file_size, 0);
 
-    // Construct queue message
+    // Group files by directory
+    const directoriesMap = new Map<string, DirectoryGroup>();
+
+    for (const file of state.files) {
+      // Extract directory from logical_path
+      const lastSlash = file.logical_path.lastIndexOf('/');
+      const directoryPath = lastSlash > 0 ? file.logical_path.substring(0, lastSlash) : '/';
+
+      if (!directoriesMap.has(directoryPath)) {
+        directoriesMap.set(directoryPath, {
+          directory_path: directoryPath,
+          processing_config: file.processing_config, // Use first file's config
+          file_count: 0,
+          total_bytes: 0,
+          files: [],
+        });
+      }
+
+      const dir = directoriesMap.get(directoryPath)!;
+      dir.file_count++;
+      dir.total_bytes += file.file_size;
+      dir.files.push({
+        r2_key: file.r2_key,
+        logical_path: file.logical_path,
+        file_name: file.file_name,
+        file_size: file.file_size,
+        content_type: file.content_type,
+        ...(file.cid && { cid: file.cid }),
+      });
+    }
+
+    // Sort directories alphabetically for deterministic ordering
+    const directories = Array.from(directoriesMap.values())
+      .sort((a, b) => a.directory_path.localeCompare(b.directory_path));
+
+    // Construct queue message with directory-grouped format
     const queueMessage: QueueMessage = {
       batch_id: batchId,
       r2_prefix: `staging/${batchId}/`,
       uploader: state.uploader,
       root_path: state.root_path,
-      file_count: state.files.length,
+      total_files: state.files.length,
       total_bytes: totalBytes,
       uploaded_at: state.created_at,
       finalized_at: new Date().toISOString(),
       metadata: state.metadata,
-      files: state.files.map((f) => ({
-        r2_key: f.r2_key,
-        logical_path: f.logical_path,
-        file_name: f.file_name,
-        file_size: f.file_size,
-        ...(f.cid && { cid: f.cid }),
-      })),
+      directories: directories,
     };
 
     // Enqueue batch job

@@ -50,6 +50,8 @@ export interface FileState {
   file_name: string;
   file_size: number;
   logical_path: string;
+  content_type: string;
+  processing_config: ProcessingConfig;
   upload_type: UploadType;
   upload_id?: string;
   status: FileStatus;
@@ -59,6 +61,15 @@ export interface FileState {
 
 export type UploadType = 'simple' | 'multipart';
 export type FileStatus = 'uploading' | 'completed';
+
+// ============================================================================
+// Processing Configuration
+// ============================================================================
+
+export interface ProcessingConfig {
+  ocr: boolean;
+  describe: boolean;
+}
 
 // ============================================================================
 // API Request/Response Types
@@ -85,6 +96,7 @@ export interface StartFileUploadRequest {
   logical_path: string;
   content_type: string;
   cid?: string;
+  processing_config: ProcessingConfig;
 }
 
 export interface StartFileUploadResponse {
@@ -135,11 +147,19 @@ export interface QueueMessage {
   r2_prefix: string;
   uploader: string;
   root_path: string;
-  file_count: number;
+  total_files: number;
   total_bytes: number;
   uploaded_at: string;
   finalized_at: string;
   metadata: Record<string, any>;
+  directories: DirectoryGroup[];
+}
+
+export interface DirectoryGroup {
+  directory_path: string;
+  processing_config: ProcessingConfig;
+  file_count: number;
+  total_bytes: number;
   files: QueueFileInfo[];
 }
 
@@ -148,6 +168,7 @@ export interface QueueFileInfo {
   logical_path: string;
   file_name: string;
   file_size: number;
+  content_type: string;
   cid?: string;
 }
 

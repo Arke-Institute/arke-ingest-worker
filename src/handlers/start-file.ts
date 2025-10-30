@@ -13,7 +13,7 @@ import type {
 import { MULTIPART_THRESHOLD, PART_SIZE } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
 import { generatePresignedPutUrl, generatePresignedUploadPartUrls } from '../lib/presigned';
-import { validateFileExtension, validateFileSize, validateLogicalPath } from '../lib/validation';
+import { validateFileExtension, validateFileSize, validateLogicalPath, validateProcessingConfig } from '../lib/validation';
 
 export async function handleStartFileUpload(
   c: Context<{ Bindings: Env }>
@@ -22,7 +22,7 @@ export async function handleStartFileUpload(
     const batchId = c.req.param('batchId');
     const body = await c.req.json<StartFileUploadRequest>();
 
-    const { file_name, file_size, logical_path, content_type, cid } = body;
+    const { file_name, file_size, logical_path, content_type, cid, processing_config } = body;
 
     // Validate request
     if (!file_name || typeof file_name !== 'string') {
@@ -50,6 +50,12 @@ export async function handleStartFileUpload(
 
     if (!content_type || typeof content_type !== 'string') {
       return c.json({ error: 'Missing or invalid content_type' }, 400);
+    }
+
+    // Validate processing_config
+    const processingConfigError = validateProcessingConfig(processing_config);
+    if (processingConfigError) {
+      return c.json({ error: processingConfigError }, 400);
     }
 
     // Get Durable Object stub
@@ -92,6 +98,8 @@ export async function handleStartFileUpload(
         file_name,
         file_size,
         logical_path,
+        content_type,
+        processing_config,
         upload_type: 'multipart',
         upload_id: multipartUpload.uploadId,
         status: 'uploading',
@@ -119,6 +127,8 @@ export async function handleStartFileUpload(
         file_name,
         file_size,
         logical_path,
+        content_type,
+        processing_config,
         upload_type: 'simple',
         status: 'uploading',
         ...(cid && { cid }),
