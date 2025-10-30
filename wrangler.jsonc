@@ -24,6 +24,15 @@
     ]
   },
 
+  // Service binding to Arke IPFS API worker
+  "services": [
+    {
+      "binding": "ARKE_IPFS_API",
+      "service": "arke-ipfs-api"
+      // NOTE: Must match the name of the deployed Arke IPFS API worker
+    }
+  ],
+
   // Durable Objects for atomic batch state management
   "durable_objects": {
     "bindings": [

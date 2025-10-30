@@ -7,14 +7,14 @@ import { ulid } from 'ulidx';
 import type { Context } from 'hono';
 import type { Env, InitBatchRequest, InitBatchResponse, BatchState } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
-import { validateBatchSize, validateLogicalPath } from '../lib/validation';
+import { validateBatchSize, validateLogicalPath, validateParentPi, checkParentPiExists } from '../lib/validation';
 
 export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Response> {
   try {
     const body = await c.req.json<InitBatchRequest>();
 
     // Validate request
-    const { uploader, root_path, file_count, total_size, metadata } = body;
+    const { uploader, root_path, file_count, total_size, metadata, parent_pi } = body;
 
     if (!uploader || typeof uploader !== 'string') {
       return c.json({ error: 'Missing or invalid uploader' }, 400);
@@ -30,6 +30,30 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
 
     if (typeof total_size !== 'number' || total_size <= 0) {
       return c.json({ error: 'Invalid total_size' }, 400);
+    }
+
+    // Default to origin block if not provided
+    const parentPiValue = parent_pi || '00000000000000000000000000';
+
+    // Validate parent_pi format
+    if (!validateParentPi(parentPiValue)) {
+      return c.json({
+        error: 'Invalid parent_pi format (must be 26-character ULID)'
+      }, 400);
+    }
+
+    // Validate parent_pi exists in archive (unless origin block)
+    if (parentPiValue !== '00000000000000000000000000') {
+      const checkResult = await checkParentPiExists(
+        parentPiValue,
+        c.env.ARKE_IPFS_API
+      );
+
+      if (!checkResult.exists) {
+        return c.json({
+          error: checkResult.error || 'Parent PI does not exist in archive'
+        }, 404);
+      }
     }
 
     // Validate batch size
@@ -50,6 +74,7 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
       session_id: sessionId,
       uploader,
       root_path,
+      parent_pi: parentPiValue,
       file_count,
       total_size,
       metadata: metadata || {},

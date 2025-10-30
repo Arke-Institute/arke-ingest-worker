@@ -16,6 +16,9 @@ export interface Env {
   // Durable Object for tracking batch state (atomic, no race conditions)
   BATCH_STATE_DO: DurableObjectNamespace;
 
+  // Service binding to Arke IPFS API worker
+  ARKE_IPFS_API: Fetcher;
+
   // Environment variables
   R2_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;
@@ -34,6 +37,7 @@ export interface BatchState {
   session_id: string;
   uploader: string;
   root_path: string;
+  parent_pi: string;
   file_count: number;
   total_size: number;
   metadata: Record<string, any>;
@@ -82,6 +86,7 @@ export interface InitBatchRequest {
   file_count: number;
   total_size: number;
   metadata?: Record<string, any>;
+  parent_pi?: string;
 }
 
 export interface InitBatchResponse {
@@ -147,6 +152,7 @@ export interface QueueMessage {
   r2_prefix: string;
   uploader: string;
   root_path: string;
+  parent_pi: string;
   total_files: number;
   total_bytes: number;
   uploaded_at: string;

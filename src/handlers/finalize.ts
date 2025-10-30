@@ -95,6 +95,7 @@ export async function handleFinalizeBatch(
       r2_prefix: `staging/${batchId}/`,
       uploader: state.uploader,
       root_path: state.root_path,
+      parent_pi: state.parent_pi,
       total_files: state.files.length,
       total_bytes: totalBytes,
       uploaded_at: state.created_at,
