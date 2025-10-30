@@ -54,6 +54,7 @@ export interface FileState {
   upload_id?: string;
   status: FileStatus;
   completed_at?: string;
+  cid?: string;
 }
 
 export type UploadType = 'simple' | 'multipart';
@@ -83,6 +84,7 @@ export interface StartFileUploadRequest {
   file_size: number;
   logical_path: string;
   content_type: string;
+  cid?: string;
 }
 
 export interface StartFileUploadResponse {
@@ -146,6 +148,7 @@ export interface QueueFileInfo {
   logical_path: string;
   file_name: string;
   file_size: number;
+  cid?: string;
 }
 
 // ============================================================================

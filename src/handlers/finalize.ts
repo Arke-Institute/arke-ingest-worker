@@ -70,6 +70,7 @@ export async function handleFinalizeBatch(
         logical_path: f.logical_path,
         file_name: f.file_name,
         file_size: f.file_size,
+        ...(f.cid && { cid: f.cid }),
       })),
     };
 

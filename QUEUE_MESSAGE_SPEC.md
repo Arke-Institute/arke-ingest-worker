@@ -34,6 +34,7 @@ interface QueueFileInfo {
   logical_path: string;
   file_name: string;
   file_size: number;
+  cid?: string;
 }
 ```
 
@@ -64,6 +65,7 @@ Each object in the `files` array contains:
 | `logical_path` | `string` | Logical path relative to root (includes leading slash and filename) | `"/documents/report.pdf"` |
 | `file_name` | `string` | Base filename only | `"report.pdf"` |
 | `file_size` | `number` | File size in bytes | `1048576` |
+| `cid` | `string` (optional) | Content Identifier for the file | `"bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"` |
 
 ## Example Message
 
@@ -87,13 +89,15 @@ Each object in the `files` array contains:
       "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/documents/report.pdf",
       "logical_path": "/documents/report.pdf",
       "file_name": "report.pdf",
-      "file_size": 1048576
+      "file_size": 1048576,
+      "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
     },
     {
       "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/images/photo1.tiff",
       "logical_path": "/images/photo1.tiff",
       "file_name": "photo1.tiff",
-      "file_size": 1572864
+      "file_size": 1572864,
+      "cid": "bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"
     },
     {
       "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/metadata.json",
@@ -141,6 +145,7 @@ export default {
             logicalPath: file.logical_path,
             fileName: file.file_name,
             fileSize: file.file_size,
+            cid: file.cid,
           });
         }
 
@@ -321,7 +326,8 @@ cat > test-message.json <<'EOF'
     "r2_key": "staging/01K8TEST1234567890ABCDEFG/test.txt",
     "logical_path": "/test.txt",
     "file_name": "test.txt",
-    "file_size": 1024
+    "file_size": 1024,
+    "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
   }]
 }
 EOF

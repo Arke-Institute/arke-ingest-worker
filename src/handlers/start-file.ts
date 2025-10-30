@@ -22,7 +22,7 @@ export async function handleStartFileUpload(
     const batchId = c.req.param('batchId');
     const body = await c.req.json<StartFileUploadRequest>();
 
-    const { file_name, file_size, logical_path, content_type } = body;
+    const { file_name, file_size, logical_path, content_type, cid } = body;
 
     // Validate request
     if (!file_name || typeof file_name !== 'string') {
@@ -95,6 +95,7 @@ export async function handleStartFileUpload(
         upload_type: 'multipart',
         upload_id: multipartUpload.uploadId,
         status: 'uploading',
+        ...(cid && { cid }),
       };
       await stub.addFile(fileState);
 
@@ -120,6 +121,7 @@ export async function handleStartFileUpload(
         logical_path,
         upload_type: 'simple',
         status: 'uploading',
+        ...(cid && { cid }),
       };
       await stub.addFile(fileState);
 
