@@ -3,7 +3,7 @@
 ## Base URL
 
 - **Local Dev**: `http://localhost:8787`
-- **Production**: `https://arke-ingest-worker.<your-subdomain>.workers.dev`
+- **Production**: `https://ingest.arke.institute`
 
 ---
 
@@ -78,11 +78,21 @@ POST /api/batches/:batchId/files/start
   "file_size": 25000000,
   "logical_path": "/series_1/box_7/folder_3/page_004.tiff",
   "content_type": "image/tiff",
-  "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+  "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+  "processing_config": {
+    "ocr": true,
+    "describe": true,
+    "pinax": true
+  }
 }
 ```
 
-**Note:** The `cid` (Content Identifier) field is optional.
+**Notes:**
+- The `cid` (Content Identifier) field is optional.
+- The `processing_config` object is required and controls downstream processing:
+  - `ocr`: Enable/disable OCR processing (boolean, required)
+  - `describe`: Enable/disable AI-powered description generation (boolean, required)
+  - `pinax`: Enable/disable Pinax metadata generation (boolean, required, defaults to `true`)
 
 **Response (200) - Simple Upload (<5MB):**
 
@@ -269,20 +279,33 @@ When a batch is finalized, this message is sent to `BATCH_QUEUE`:
   "r2_prefix": "staging/01K8ABCDEFGHIJKLMNOPQRSTUV/",
   "uploader": "Jane Doe",
   "root_path": "/series_1/box_7",
-  "file_count": 47,
+  "parent_pi": "00000000000000000000000000",
+  "total_files": 47,
   "total_bytes": 1234567890,
   "uploaded_at": "2025-01-29T12:30:00Z",
   "finalized_at": "2025-01-29T12:45:00Z",
   "metadata": {
     "collection": "historical_records"
   },
-  "files": [
+  "directories": [
     {
-      "r2_key": "staging/01K8.../series_1/box_7/page_001.tiff",
-      "logical_path": "/series_1/box_7/page_001.tiff",
-      "file_name": "page_001.tiff",
-      "file_size": 25000000,
-      "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+      "directory_path": "/series_1/box_7",
+      "processing_config": {
+        "ocr": true,
+        "describe": true,
+        "pinax": true
+      },
+      "file_count": 1,
+      "total_bytes": 25000000,
+      "files": [
+        {
+          "r2_key": "staging/01K8.../series_1/box_7/page_001.tiff",
+          "logical_path": "/series_1/box_7/page_001.tiff",
+          "file_name": "page_001.tiff",
+          "file_size": 25000000,
+          "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+        }
+      ]
     }
   ]
 }

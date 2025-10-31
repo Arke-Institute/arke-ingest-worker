@@ -21,12 +21,27 @@ interface QueueMessage {
   r2_prefix: string;
   uploader: string;
   root_path: string;
-  file_count: number;
+  parent_pi: string;
+  total_files: number;
   total_bytes: number;
   uploaded_at: string;
   finalized_at: string;
   metadata: Record<string, any>;
+  directories: DirectoryGroup[];
+}
+
+interface DirectoryGroup {
+  directory_path: string;
+  processing_config: ProcessingConfig;
+  file_count: number;
+  total_bytes: number;
   files: QueueFileInfo[];
+}
+
+interface ProcessingConfig {
+  ocr: boolean;
+  describe: boolean;
+  pinax: boolean;
 }
 
 interface QueueFileInfo {
@@ -34,6 +49,7 @@ interface QueueFileInfo {
   logical_path: string;
   file_name: string;
   file_size: number;
+  content_type: string;
   cid?: string;
 }
 ```
@@ -48,16 +64,39 @@ interface QueueFileInfo {
 | `r2_prefix` | `string` | R2 bucket prefix where files are stored | `"staging/01K8RNKN488RQCG3YGG72QBZS5/"` |
 | `uploader` | `string` | Identity of the user/system that uploaded the batch | `"john.doe@arke.institute"` |
 | `root_path` | `string` | Logical root path for the batch | `"/archives/2025/collection-01"` |
-| `file_count` | `number` | Total number of files in the batch | `5` |
+| `parent_pi` | `string` | Parent Persistent Identifier (26-character ULID) | `"00000000000000000000000000"` |
+| `total_files` | `number` | Total number of files in the batch | `5` |
 | `total_bytes` | `number` | Sum of all file sizes in bytes | `5368709120` |
 | `uploaded_at` | `string` | ISO 8601 timestamp when batch was created | `"2025-10-29T19:15:30.123Z"` |
 | `finalized_at` | `string` | ISO 8601 timestamp when batch was finalized | `"2025-10-29T19:20:45.456Z"` |
 | `metadata` | `object` | Custom metadata provided during batch initialization | `{"project": "archival-2025", "source": "scanner-01"}` |
+| `directories` | `array` | Array of directory groups with processing configs | See below |
+
+#### Directory Group Fields
+
+Each object in the `directories` array contains:
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `directory_path` | `string` | Directory path (extracted from logical paths) | `"/documents/subfolder"` |
+| `processing_config` | `object` | Processing configuration for files in this directory | See below |
+| `file_count` | `number` | Number of files in this directory | `3` |
+| `total_bytes` | `number` | Total size of files in this directory | `3145728` |
 | `files` | `array` | Array of file information objects | See below |
+
+#### Processing Config Fields
+
+The `processing_config` object controls downstream processing:
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `ocr` | `boolean` | Enable/disable OCR (Optical Character Recognition) processing | `true` |
+| `describe` | `boolean` | Enable/disable AI-powered description generation | `true` |
+| `pinax` | `boolean` | Enable/disable Pinax metadata generation (defaults to `true`) | `true` |
 
 #### File Information Fields
 
-Each object in the `files` array contains:
+Each object in the `files` array within a directory contains:
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
@@ -65,6 +104,7 @@ Each object in the `files` array contains:
 | `logical_path` | `string` | Logical path relative to root (includes leading slash and filename) | `"/documents/report.pdf"` |
 | `file_name` | `string` | Base filename only | `"report.pdf"` |
 | `file_size` | `number` | File size in bytes | `1048576` |
+| `content_type` | `string` | MIME type of the file | `"application/pdf"` |
 | `cid` | `string` (optional) | Content Identifier for the file | `"bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"` |
 
 ## Example Message
@@ -75,7 +115,8 @@ Each object in the `files` array contains:
   "r2_prefix": "staging/01K8RNKN488RQCG3YGG72QBZS5/",
   "uploader": "john.doe@arke.institute",
   "root_path": "/archives/2025/collection-01",
-  "file_count": 3,
+  "parent_pi": "00000000000000000000000000",
+  "total_files": 3,
   "total_bytes": 3145728,
   "uploaded_at": "2025-10-29T19:15:30.123Z",
   "finalized_at": "2025-10-29T19:20:45.456Z",
@@ -84,26 +125,65 @@ Each object in the `files` array contains:
     "source": "scanner-01",
     "collection_id": "col_12345"
   },
-  "files": [
+  "directories": [
     {
-      "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/documents/report.pdf",
-      "logical_path": "/documents/report.pdf",
-      "file_name": "report.pdf",
-      "file_size": 1048576,
-      "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+      "directory_path": "/",
+      "processing_config": {
+        "ocr": false,
+        "describe": false,
+        "pinax": true
+      },
+      "file_count": 1,
+      "total_bytes": 524288,
+      "files": [
+        {
+          "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/metadata.json",
+          "logical_path": "/metadata.json",
+          "file_name": "metadata.json",
+          "file_size": 524288,
+          "content_type": "application/json"
+        }
+      ]
     },
     {
-      "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/images/photo1.tiff",
-      "logical_path": "/images/photo1.tiff",
-      "file_name": "photo1.tiff",
-      "file_size": 1572864,
-      "cid": "bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"
+      "directory_path": "/documents",
+      "processing_config": {
+        "ocr": true,
+        "describe": true,
+        "pinax": true
+      },
+      "file_count": 1,
+      "total_bytes": 1048576,
+      "files": [
+        {
+          "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/documents/report.pdf",
+          "logical_path": "/documents/report.pdf",
+          "file_name": "report.pdf",
+          "file_size": 1048576,
+          "content_type": "application/pdf",
+          "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+        }
+      ]
     },
     {
-      "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/metadata.json",
-      "logical_path": "/metadata.json",
-      "file_name": "metadata.json",
-      "file_size": 524288
+      "directory_path": "/images",
+      "processing_config": {
+        "ocr": true,
+        "describe": true,
+        "pinax": false
+      },
+      "file_count": 1,
+      "total_bytes": 1572864,
+      "files": [
+        {
+          "r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/images/photo1.tiff",
+          "logical_path": "/images/photo1.tiff",
+          "file_name": "photo1.tiff",
+          "file_size": 1572864,
+          "content_type": "image/tiff",
+          "cid": "bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"
+        }
+      ]
     }
   ]
 }

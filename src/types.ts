@@ -73,6 +73,7 @@ export type FileStatus = 'uploading' | 'completed';
 export interface ProcessingConfig {
   ocr: boolean;
   describe: boolean;
+  pinax: boolean;
 }
 
 // ============================================================================

@@ -72,6 +72,10 @@ export function validateProcessingConfig(config: any): string | null {
     return 'processing_config.describe must be a boolean';
   }
 
+  if (typeof config.pinax !== 'boolean') {
+    return 'processing_config.pinax must be a boolean';
+  }
+
   return null; // Valid
 }
 
