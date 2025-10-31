@@ -2,16 +2,6 @@
  * Validation utilities for file uploads
  */
 
-import { ALLOWED_EXTENSIONS } from '../types';
-
-/**
- * Validate file extension
- */
-export function validateFileExtension(fileName: string): boolean {
-  const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
-  return ALLOWED_EXTENSIONS.includes(ext as any);
-}
-
 /**
  * Validate file size
  */

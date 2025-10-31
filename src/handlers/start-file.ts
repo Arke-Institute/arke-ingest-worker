@@ -13,7 +13,7 @@ import type {
 import { MULTIPART_THRESHOLD, PART_SIZE } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
 import { generatePresignedPutUrl, generatePresignedUploadPartUrls } from '../lib/presigned';
-import { validateFileExtension, validateFileSize, validateLogicalPath, validateProcessingConfig } from '../lib/validation';
+import { validateFileSize, validateLogicalPath, validateProcessingConfig } from '../lib/validation';
 
 export async function handleStartFileUpload(
   c: Context<{ Bindings: Env }>
@@ -27,10 +27,6 @@ export async function handleStartFileUpload(
     // Validate request
     if (!file_name || typeof file_name !== 'string') {
       return c.json({ error: 'Missing or invalid file_name' }, 400);
-    }
-
-    if (!validateFileExtension(file_name)) {
-      return c.json({ error: `File extension not allowed: ${file_name}` }, 400);
     }
 
     if (typeof file_size !== 'number' || file_size <= 0) {

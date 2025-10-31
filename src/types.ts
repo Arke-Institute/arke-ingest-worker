@@ -180,15 +180,8 @@ export interface QueueFileInfo {
 }
 
 // ============================================================================
-// Validation
+// Upload Configuration
 // ============================================================================
-
-export const ALLOWED_EXTENSIONS = [
-  '.tiff', '.tif',
-  '.jpg', '.jpeg', '.png', '.gif', '.bmp',
-  '.json', '.xml', '.txt', '.csv',
-  '.pdf', '.md'
-] as const;
 
 export const MULTIPART_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 export const PART_SIZE = 10 * 1024 * 1024; // 10 MB
