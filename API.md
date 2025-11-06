@@ -64,7 +64,87 @@ POST /api/batches/init
 
 ---
 
-### 3. Start File Upload
+### 3. Get Batch Status
+
+```
+GET /api/batches/:batchId/status
+```
+
+**Description:**
+
+Returns the current status and progress of a batch upload, including individual file states.
+
+**Response (200):**
+
+```json
+{
+  "batch_id": "01K8ABCDEFGHIJKLMNOPQRSTUV",
+  "session_id": "sess_01K8WXYZABCDEFGHIJKLMNOPQ",
+  "status": "uploading",
+  "uploader": "Jane Doe",
+  "root_path": "/series_1/box_7",
+  "parent_pi": "00000000000000000000000000",
+  "file_count": 47,
+  "files_uploaded": 23,
+  "total_size": 1234567890,
+  "total_bytes_uploaded": 600000000,
+  "created_at": "2025-01-29T12:30:00Z",
+  "enqueued_at": null,
+  "metadata": {
+    "collection": "historical_records",
+    "year": "1923"
+  },
+  "files": [
+    {
+      "r2_key": "staging/01K8ABCDEFGHIJKLMNOPQRSTUV/series_1/box_7/page_001.tiff",
+      "file_name": "page_001.tiff",
+      "file_size": 25000000,
+      "logical_path": "/series_1/box_7/page_001.tiff",
+      "content_type": "image/tiff",
+      "processing_config": {
+        "ocr": true,
+        "describe": true,
+        "pinax": true
+      },
+      "upload_type": "multipart",
+      "status": "completed",
+      "completed_at": "2025-01-29T12:35:00Z",
+      "cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+    },
+    {
+      "r2_key": "staging/01K8ABCDEFGHIJKLMNOPQRSTUV/series_1/box_7/page_002.tiff",
+      "file_name": "page_002.tiff",
+      "file_size": 24500000,
+      "logical_path": "/series_1/box_7/page_002.tiff",
+      "content_type": "image/tiff",
+      "processing_config": {
+        "ocr": true,
+        "describe": true,
+        "pinax": false
+      },
+      "upload_type": "multipart",
+      "status": "uploading",
+      "cid": null
+    }
+  ]
+}
+```
+
+**Status Values:**
+- `uploading` - Files are currently being uploaded
+- `enqueued` - Batch has been finalized and queued for processing
+- `processing` - Orchestrator is processing the batch
+- `completed` - All processing complete
+- `failed` - Batch processing failed
+
+**Error Responses:**
+
+- `404` - Batch not found
+- `500` - Internal server error
+
+---
+
+### 4. Start File Upload
 
 ```
 POST /api/batches/:batchId/files/start
@@ -133,7 +213,7 @@ POST /api/batches/:batchId/files/start
 
 ---
 
-### 4. Complete File Upload
+### 5. Complete File Upload
 
 ```
 POST /api/batches/:batchId/files/complete
@@ -182,7 +262,7 @@ POST /api/batches/:batchId/files/complete
 
 ---
 
-### 5. Finalize Batch
+### 6. Finalize Batch
 
 ```
 POST /api/batches/:batchId/finalize

@@ -12,6 +12,7 @@ import { handleInitBatch } from './handlers/init-batch';
 import { handleStartFileUpload } from './handlers/start-file';
 import { handleCompleteFileUpload } from './handlers/complete-file';
 import { handleFinalizeBatch } from './handlers/finalize';
+import { handleGetBatchStatus } from './handlers/get-status';
 
 // Export Durable Object
 export { BatchStateObject } from './durable-objects/BatchState';
@@ -39,6 +40,7 @@ app.get('/', (c) => {
 
 // API Routes
 app.post('/api/batches/init', handleInitBatch);
+app.get('/api/batches/:batchId/status', handleGetBatchStatus);
 app.post('/api/batches/:batchId/files/start', handleStartFileUpload);
 app.post('/api/batches/:batchId/files/complete', handleCompleteFileUpload);
 app.post('/api/batches/:batchId/finalize', handleFinalizeBatch);

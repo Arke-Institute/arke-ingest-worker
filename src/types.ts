@@ -144,6 +144,37 @@ export interface FinalizeBatchResponse {
   r2_prefix: string;
 }
 
+// GET /api/batches/:batchId/status
+export interface BatchStatusResponse {
+  batch_id: string;
+  session_id: string;
+  status: BatchStatus;
+  uploader: string;
+  root_path: string;
+  parent_pi: string;
+  file_count: number;
+  files_uploaded: number;
+  total_size: number;
+  total_bytes_uploaded: number;
+  created_at: string;
+  enqueued_at?: string;
+  metadata: Record<string, any>;
+  files: BatchStatusFileInfo[];
+}
+
+export interface BatchStatusFileInfo {
+  r2_key: string;
+  file_name: string;
+  file_size: number;
+  logical_path: string;
+  content_type: string;
+  processing_config: ProcessingConfig;
+  upload_type: UploadType;
+  status: FileStatus;
+  completed_at?: string;
+  cid?: string;
+}
+
 // ============================================================================
 // Queue Message
 // ============================================================================
