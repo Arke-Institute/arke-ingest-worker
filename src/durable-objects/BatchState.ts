@@ -5,7 +5,7 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import type { BatchState, FileState, CompletedPart } from '../types';
+import type { BatchState, FileState, CompletedPart, ProcessedFileInfo } from '../types';
 
 export class BatchStateObject extends DurableObject {
   /**
@@ -119,6 +119,38 @@ export class BatchStateObject extends DurableObject {
     if (enqueuedAt) {
       state.enqueued_at = enqueuedAt;
     }
+    await this.ctx.storage.put('state', state);
+  }
+
+  /**
+   * Replace entire file list with processed files from Cloud Run
+   * Used after preprocessing completes (TIFF conversion, PDF splitting, etc.)
+   */
+  async replaceFiles(processedFiles: ProcessedFileInfo[]): Promise<void> {
+    const state = await this.ctx.storage.get<BatchState>('state');
+    if (!state) {
+      throw new Error('Batch not found');
+    }
+
+    // Wholesale replacement of file list
+    state.files = processedFiles.map(pf => ({
+      r2_key: pf.r2_key,
+      file_name: pf.file_name,
+      file_size: pf.file_size,
+      logical_path: pf.logical_path,
+      content_type: pf.content_type,
+      cid: pf.cid,
+      status: 'completed' as const,
+      completed_at: new Date().toISOString(),
+      upload_type: 'simple' as const,
+      // Use provided config or default
+      processing_config: pf.processing_config || {
+        ocr: false,
+        describe: false,
+        pinax: false,
+      },
+    }));
+
     await this.ctx.storage.put('state', state);
   }
 

@@ -104,16 +104,17 @@ export async function handleFinalizeBatch(
       directories: directories,
     };
 
-    // Enqueue batch job
-    await c.env.BATCH_QUEUE.send(queueMessage);
+    // ALWAYS send to preprocessing queue
+    // Cloud Run will decide which files need processing
+    await c.env.PREPROCESS_QUEUE.send(queueMessage);
 
-    // Update batch state atomically
-    await stub.updateStatus('enqueued', new Date().toISOString());
+    // Update batch state to preprocessing
+    await stub.updateStatus('preprocessing', new Date().toISOString());
 
     // Return response
     const response: FinalizeBatchResponse = {
       batch_id: batchId,
-      status: 'enqueued',
+      status: 'preprocessing',
       files_uploaded: state.files.length,
       total_bytes: totalBytes,
       r2_prefix: `staging/${batchId}/`,

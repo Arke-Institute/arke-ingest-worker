@@ -13,6 +13,7 @@ import { handleStartFileUpload } from './handlers/start-file';
 import { handleCompleteFileUpload } from './handlers/complete-file';
 import { handleFinalizeBatch } from './handlers/finalize';
 import { handleGetBatchStatus } from './handlers/get-status';
+import { handleEnqueueProcessed } from './handlers/enqueue-processed';
 
 // Export Durable Object
 export { BatchStateObject } from './durable-objects/BatchState';
@@ -44,6 +45,7 @@ app.get('/api/batches/:batchId/status', handleGetBatchStatus);
 app.post('/api/batches/:batchId/files/start', handleStartFileUpload);
 app.post('/api/batches/:batchId/files/complete', handleCompleteFileUpload);
 app.post('/api/batches/:batchId/finalize', handleFinalizeBatch);
+app.post('/api/batches/:batchId/enqueue-processed', handleEnqueueProcessed);
 
 // 404 handler
 app.notFound((c) => {

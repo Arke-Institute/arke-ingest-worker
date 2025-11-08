@@ -10,7 +10,10 @@ export interface Env {
   // R2 bucket for staging files
   STAGING_BUCKET: R2Bucket;
 
-  // Queue for batch processing jobs
+  // Queue for preprocessing jobs (TIFF conversion, PDF splitting, etc.)
+  PREPROCESS_QUEUE: Queue;
+
+  // Queue for batch processing jobs (after preprocessing)
   BATCH_QUEUE: Queue;
 
   // Durable Object for tracking batch state (atomic, no race conditions)
@@ -47,7 +50,7 @@ export interface BatchState {
   enqueued_at?: string;
 }
 
-export type BatchStatus = 'uploading' | 'enqueued' | 'processing' | 'completed' | 'failed';
+export type BatchStatus = 'uploading' | 'preprocessing' | 'enqueued' | 'processing' | 'completed' | 'failed';
 
 export interface FileState {
   r2_key: string;
@@ -216,3 +219,29 @@ export interface QueueFileInfo {
 
 export const MULTIPART_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 export const PART_SIZE = 10 * 1024 * 1024; // 10 MB
+
+// ============================================================================
+// Preprocessing Types
+// ============================================================================
+
+// POST /api/batches/:batchId/enqueue-processed
+export interface EnqueueProcessedRequest {
+  files: ProcessedFileInfo[];
+}
+
+export interface ProcessedFileInfo {
+  r2_key: string;
+  logical_path: string;
+  file_name: string;
+  file_size: number;
+  content_type: string;
+  cid: string;
+  processing_config?: ProcessingConfig;
+}
+
+export interface EnqueueProcessedResponse {
+  success: boolean;
+  batch_id: string;
+  status: string;
+  total_files: number;
+}

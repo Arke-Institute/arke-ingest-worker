@@ -13,9 +13,15 @@
     }
   ],
 
-  // Queue for batch processing jobs
+  // Queues for preprocessing and batch processing
   "queues": {
     "producers": [
+      {
+        "binding": "PREPROCESS_QUEUE",
+        "queue": "arke-preprocess-jobs"
+        // NOTE: Create queue with: wrangler queues create arke-preprocess-jobs
+        // Dead letter queue: wrangler queues create arke-preprocess-dlq
+      },
       {
         "binding": "BATCH_QUEUE",
         "queue": "arke-batch-jobs"
