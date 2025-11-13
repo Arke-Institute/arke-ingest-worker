@@ -184,6 +184,7 @@ export interface BatchStatusFileInfo {
 
 export interface QueueMessage {
   batch_id: string;
+  manifest_r2_key: string; // Reference to manifest stored in R2
   r2_prefix: string;
   uploader: string;
   root_path: string;
@@ -193,7 +194,14 @@ export interface QueueMessage {
   uploaded_at: string;
   finalized_at: string;
   metadata: Record<string, any>;
+  // directories removed - now stored in manifest
+}
+
+export interface BatchManifest {
+  batch_id: string;
   directories: DirectoryGroup[];
+  total_files: number;
+  total_bytes: number;
 }
 
 export interface DirectoryGroup {

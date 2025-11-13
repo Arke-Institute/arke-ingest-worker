@@ -4,7 +4,7 @@
  */
 
 import type { Context } from 'hono';
-import type { Env, FinalizeBatchResponse, QueueMessage, DirectoryGroup } from '../types';
+import type { Env, FinalizeBatchResponse, QueueMessage, DirectoryGroup, BatchManifest } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
 
 export async function handleFinalizeBatch(
@@ -89,9 +89,30 @@ export async function handleFinalizeBatch(
     const directories = Array.from(directoriesMap.values())
       .sort((a, b) => a.directory_path.localeCompare(b.directory_path));
 
-    // Construct queue message with directory-grouped format
+    // Create manifest object to store in R2
+    const manifest: BatchManifest = {
+      batch_id: batchId,
+      directories: directories,
+      total_files: state.files.length,
+      total_bytes: totalBytes,
+    };
+
+    // Store manifest in R2
+    const manifestKey = `staging/${batchId}/_manifest.json`;
+    await c.env.STAGING_BUCKET.put(
+      manifestKey,
+      JSON.stringify(manifest, null, 2),
+      {
+        httpMetadata: {
+          contentType: 'application/json',
+        },
+      }
+    );
+
+    // Construct minimal queue message with manifest reference
     const queueMessage: QueueMessage = {
       batch_id: batchId,
+      manifest_r2_key: manifestKey,
       r2_prefix: `staging/${batchId}/`,
       uploader: state.uploader,
       root_path: state.root_path,
@@ -101,7 +122,6 @@ export async function handleFinalizeBatch(
       uploaded_at: state.created_at,
       finalized_at: new Date().toISOString(),
       metadata: state.metadata,
-      directories: directories,
     };
 
     // ALWAYS send to preprocessing queue

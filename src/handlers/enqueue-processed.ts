@@ -11,6 +11,7 @@ import type {
   EnqueueProcessedResponse,
   QueueMessage,
   DirectoryGroup,
+  BatchManifest,
 } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
 
@@ -96,9 +97,30 @@ export async function handleEnqueueProcessed(
     const directories = Array.from(directoriesMap.values())
       .sort((a, b) => a.directory_path.localeCompare(b.directory_path));
 
-    // Build queue message with updated file list
+    // Create manifest object to store in R2
+    const manifest: BatchManifest = {
+      batch_id: batchId,
+      directories: directories,
+      total_files: updatedState.files.length,
+      total_bytes: totalBytes,
+    };
+
+    // Store manifest in R2 (overwrites preprocessing manifest with processed version)
+    const manifestKey = `staging/${batchId}/_manifest.json`;
+    await c.env.STAGING_BUCKET.put(
+      manifestKey,
+      JSON.stringify(manifest, null, 2),
+      {
+        httpMetadata: {
+          contentType: 'application/json',
+        },
+      }
+    );
+
+    // Build minimal queue message with manifest reference
     const queueMessage: QueueMessage = {
       batch_id: batchId,
+      manifest_r2_key: manifestKey,
       r2_prefix: `staging/${batchId}/`,
       uploader: updatedState.uploader,
       root_path: updatedState.root_path,
@@ -108,7 +130,6 @@ export async function handleEnqueueProcessed(
       uploaded_at: updatedState.created_at,
       finalized_at: new Date().toISOString(),
       metadata: updatedState.metadata,
-      directories: directories,
     };
 
     // Send to batch queue

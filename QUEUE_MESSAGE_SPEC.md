@@ -2,22 +2,45 @@
 
 ## Overview
 
-The `arke-ingest-worker` enqueues batch upload jobs to the **`arke-batch-jobs`** Cloudflare Queue after all files in a batch have been successfully uploaded to R2. The orchestrator (consumer) should process these messages to trigger the ingestion pipeline.
+The `arke-ingest-worker` uses two Cloudflare Queues to orchestrate batch processing:
+
+1. **PREPROCESS_QUEUE** (`arke-preprocess-jobs`): For file preprocessing (TIFF conversion, PDF splitting)
+2. **BATCH_QUEUE** (`arke-batch-jobs`): For final processing (OCR, LLM, IPFS storage)
+
+Both queues use the **same message format** with a manifest stored in R2 to avoid queue message size limits (128KB).
+
+## Architecture: Manifest Storage Pattern
+
+To support batches with thousands of files and deeply nested directories, the file manifest is **stored in R2** rather than embedded in the queue message. This keeps queue messages under the 128KB limit regardless of batch size.
+
+**Flow:**
+1. Worker stores manifest at `staging/{batch_id}/_manifest.json` in R2
+2. Worker sends minimal queue message with `manifest_r2_key` reference
+3. Consumer fetches manifest from R2 using the provided key
+4. Consumer processes files listed in manifest
 
 ## Queue Details
 
-- **Queue Name**: `arke-batch-jobs`
-- **Queue ID**: `f63fa9961c58472c995e9fe7a8d9fc4d`
-- **Message Format**: JSON
-- **Trigger**: Sent when `POST /api/batches/:batchId/finalize` is called after all files are uploaded
+### PREPROCESS_QUEUE (`arke-preprocess-jobs`)
+- **Trigger**: Sent when `POST /api/batches/:batchId/finalize` is called
+- **Consumer**: Cloud Run preprocessor service
+- **Purpose**: TIFF conversion, PDF splitting, file transformations
+
+### BATCH_QUEUE (`arke-batch-jobs`)
+- **Trigger**: Sent when `POST /api/batches/:batchId/enqueue-processed` is called by preprocessor
+- **Consumer**: Orchestrator for OCR, LLM, IPFS processing
+- **Purpose**: Final ingestion pipeline processing
 
 ## Message Structure
 
-### TypeScript Interface
+### TypeScript Interfaces
+
+#### Queue Message (Sent to Queue)
 
 ```typescript
 interface QueueMessage {
   batch_id: string;
+  manifest_r2_key: string; // Reference to manifest in R2
   r2_prefix: string;
   uploader: string;
   root_path: string;
@@ -27,7 +50,17 @@ interface QueueMessage {
   uploaded_at: string;
   finalized_at: string;
   metadata: Record<string, any>;
+}
+```
+
+#### Batch Manifest (Stored in R2)
+
+```typescript
+interface BatchManifest {
+  batch_id: string;
   directories: DirectoryGroup[];
+  total_files: number;
+  total_bytes: number;
 }
 
 interface DirectoryGroup {
@@ -56,11 +89,12 @@ interface QueueFileInfo {
 
 ### Field Descriptions
 
-#### Top-Level Fields
+#### Queue Message Fields
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
 | `batch_id` | `string` | Unique batch identifier (ULID) | `"01K8RNKN488RQCG3YGG72QBZS5"` |
+| `manifest_r2_key` | `string` | **R2 key where the manifest is stored** | `"staging/01K8RNKN488RQCG3YGG72QBZS5/_manifest.json"` |
 | `r2_prefix` | `string` | R2 bucket prefix where files are stored | `"staging/01K8RNKN488RQCG3YGG72QBZS5/"` |
 | `uploader` | `string` | Identity of the user/system that uploaded the batch | `"john.doe@arke.institute"` |
 | `root_path` | `string` | Logical root path for the batch | `"/archives/2025/collection-01"` |
@@ -70,7 +104,15 @@ interface QueueFileInfo {
 | `uploaded_at` | `string` | ISO 8601 timestamp when batch was created | `"2025-10-29T19:15:30.123Z"` |
 | `finalized_at` | `string` | ISO 8601 timestamp when batch was finalized | `"2025-10-29T19:20:45.456Z"` |
 | `metadata` | `object` | Custom metadata provided during batch initialization | `{"project": "archival-2025", "source": "scanner-01"}` |
+
+#### Batch Manifest Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `batch_id` | `string` | Unique batch identifier (matches queue message) | `"01K8RNKN488RQCG3YGG72QBZS5"` |
 | `directories` | `array` | Array of directory groups with processing configs | See below |
+| `total_files` | `number` | Total number of files in the batch | `5` |
+| `total_bytes` | `number` | Sum of all file sizes in bytes | `5368709120` |
 
 #### Directory Group Fields
 
@@ -107,11 +149,14 @@ Each object in the `files` array within a directory contains:
 | `content_type` | `string` | MIME type of the file | `"application/pdf"` |
 | `cid` | `string` (optional) | Content Identifier for the file | `"bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"` |
 
-## Example Message
+## Example Messages
+
+### Queue Message (Sent to Queue)
 
 ```json
 {
   "batch_id": "01K8RNKN488RQCG3YGG72QBZS5",
+  "manifest_r2_key": "staging/01K8RNKN488RQCG3YGG72QBZS5/_manifest.json",
   "r2_prefix": "staging/01K8RNKN488RQCG3YGG72QBZS5/",
   "uploader": "john.doe@arke.institute",
   "root_path": "/archives/2025/collection-01",
@@ -124,7 +169,17 @@ Each object in the `files` array within a directory contains:
     "project": "archival-2025",
     "source": "scanner-01",
     "collection_id": "col_12345"
-  },
+  }
+}
+```
+
+### Batch Manifest (Stored in R2 at `staging/{batch_id}/_manifest.json`)
+
+```json
+{
+  "batch_id": "01K8RNKN488RQCG3YGG72QBZS5",
+  "total_files": 3,
+  "total_bytes": 3145728,
   "directories": [
     {
       "directory_path": "/",
@@ -189,22 +244,28 @@ Each object in the `files` array within a directory contains:
 }
 ```
 
-## Orchestrator Consumer Implementation
+## Consumer Implementation
+
+Both the **Cloud Run preprocessor** (PREPROCESS_QUEUE consumer) and the **orchestrator** (BATCH_QUEUE consumer) need to fetch the manifest from R2 before processing files.
 
 ### Setting Up the Consumer
 
-The orchestrator should be configured as a consumer of the `arke-batch-jobs` queue in its `wrangler.toml`:
+#### Cloudflare Worker Consumer (wrangler.toml)
 
 ```toml
 [[queues.consumers]]
-queue = "arke-batch-jobs"
+queue = "arke-batch-jobs"  # or "arke-preprocess-jobs"
 max_batch_size = 10
 max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "arke-batch-jobs-dlq"
 ```
 
-### Consumer Handler Example
+#### Cloud Run Consumer
+
+Use the Google Cloud Storage client to access R2 (via S3-compatible API) or use HTTP fetch with presigned URLs.
+
+### Consumer Handler Example (Cloudflare Worker)
 
 ```typescript
 export default {
@@ -214,19 +275,38 @@ export default {
         const payload = message.body;
 
         console.log(`Processing batch ${payload.batch_id}`);
-        console.log(`- Files: ${payload.file_count}`);
+        console.log(`- Files: ${payload.total_files}`);
         console.log(`- Total size: ${payload.total_bytes} bytes`);
-        console.log(`- R2 prefix: ${payload.r2_prefix}`);
+        console.log(`- Manifest: ${payload.manifest_r2_key}`);
 
-        // Process each file in the batch
-        for (const file of payload.files) {
-          await processFile({
-            r2Key: file.r2_key,
-            logicalPath: file.logical_path,
-            fileName: file.file_name,
-            fileSize: file.file_size,
-            cid: file.cid,
-          });
+        // **CRITICAL: Fetch manifest from R2**
+        const manifestObj = await env.STAGING_BUCKET.get(payload.manifest_r2_key);
+        if (!manifestObj) {
+          throw new Error(`Manifest not found: ${payload.manifest_r2_key}`);
+        }
+
+        const manifest: BatchManifest = await manifestObj.json();
+
+        console.log(`Loaded manifest with ${manifest.directories.length} directories`);
+
+        // Process each directory group
+        for (const directory of manifest.directories) {
+          console.log(`Processing directory: ${directory.directory_path}`);
+          console.log(`- Files: ${directory.file_count}`);
+          console.log(`- Processing config:`, directory.processing_config);
+
+          // Process each file in the directory
+          for (const file of directory.files) {
+            await processFile({
+              r2Key: file.r2_key,
+              logicalPath: file.logical_path,
+              fileName: file.file_name,
+              fileSize: file.file_size,
+              contentType: file.content_type,
+              cid: file.cid,
+              processingConfig: directory.processing_config,
+            });
+          }
         }
 
         // Mark message as successfully processed
@@ -242,13 +322,74 @@ export default {
 };
 ```
 
+### Consumer Handler Example (Cloud Run - Python)
+
+```python
+import json
+from google.cloud import storage
+from typing import Dict, Any
+
+def process_queue_message(message: Dict[str, Any], r2_client: storage.Client):
+    """Process a queue message from PREPROCESS_QUEUE or BATCH_QUEUE"""
+
+    payload = message
+    batch_id = payload['batch_id']
+    manifest_key = payload['manifest_r2_key']
+
+    print(f"Processing batch {batch_id}")
+    print(f"- Files: {payload['total_files']}")
+    print(f"- Manifest: {manifest_key}")
+
+    # **CRITICAL: Fetch manifest from R2**
+    bucket = r2_client.bucket('arke-staging')
+    blob = bucket.blob(manifest_key)
+    manifest_json = blob.download_as_text()
+    manifest = json.loads(manifest_json)
+
+    print(f"Loaded manifest with {len(manifest['directories'])} directories")
+
+    # Process each directory group
+    for directory in manifest['directories']:
+        print(f"Processing directory: {directory['directory_path']}")
+        print(f"- Files: {directory['file_count']}")
+        print(f"- Processing config: {directory['processing_config']}")
+
+        # Process each file
+        for file_info in directory['files']:
+            process_file(
+                r2_key=file_info['r2_key'],
+                logical_path=file_info['logical_path'],
+                file_name=file_info['file_name'],
+                file_size=file_info['file_size'],
+                content_type=file_info['content_type'],
+                cid=file_info.get('cid'),
+                processing_config=directory['processing_config']
+            )
+```
+
 ## Processing Workflow
 
 ### 1. Receive Message
 
-The orchestrator receives a message from the queue when a batch is finalized.
+The consumer receives a message from the queue when a batch is finalized (PREPROCESS_QUEUE) or when preprocessing completes (BATCH_QUEUE).
 
-### 2. Access Files in R2
+### 2. Fetch Manifest from R2
+
+**This is the key change:** Instead of reading directories from the queue message, fetch the manifest from R2:
+
+```typescript
+// Get manifest key from queue message
+const manifestKey = message.body.manifest_r2_key;
+
+// Fetch from R2
+const manifestObj = await env.STAGING_BUCKET.get(manifestKey);
+const manifest: BatchManifest = await manifestObj.json();
+
+// Now you have access to all directories and files
+const directories = manifest.directories;
+```
+
+### 3. Access Files in R2
 
 All files are stored in the `STAGING_BUCKET` R2 bucket under the `r2_prefix`:
 
@@ -261,7 +402,7 @@ if (object === null) {
 const fileData = await object.arrayBuffer();
 ```
 
-### 3. Process Files
+### 4. Process Files
 
 Process each file according to your ingestion pipeline requirements:
 - Extract metadata
@@ -270,7 +411,7 @@ Process each file according to your ingestion pipeline requirements:
 - Store in final destination
 - Update database records
 
-### 4. Reconstruct Directory Structure
+### 5. Reconstruct Directory Structure
 
 Use the `logical_path` field to reconstruct the original directory structure:
 
@@ -282,7 +423,7 @@ Use the `logical_path` field to reconstruct the original directory structure:
 const finalPath = payload.root_path + file.logical_path;
 ```
 
-### 5. Cleanup (Optional)
+### 6. Cleanup (Optional)
 
 After successful processing, you may want to:
 - Delete files from the staging bucket
@@ -290,9 +431,11 @@ After successful processing, you may want to:
 - Update status in a tracking database
 
 ```typescript
-// Delete processed files from staging
-for (const file of payload.files) {
-  await env.STAGING_BUCKET.delete(file.r2_key);
+// Delete entire batch directory (includes all files + manifest)
+// This is more efficient than deleting files one by one
+const objects = await env.STAGING_BUCKET.list({ prefix: payload.r2_prefix });
+for (const obj of objects.objects) {
+  await env.STAGING_BUCKET.delete(obj.key);
 }
 ```
 
