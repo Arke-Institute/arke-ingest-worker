@@ -50,6 +50,15 @@ interface QueueMessage {
   uploaded_at: string;
   finalized_at: string;
   metadata: Record<string, any>;
+  custom_prompts?: CustomPrompts;
+}
+
+interface CustomPrompts {
+  general?: string;           // Applied to all AI service calls
+  reorganization?: string;    // Phase-specific: file reorganization
+  pinax?: string;             // Phase-specific: PINAX metadata extraction
+  description?: string;       // Phase-specific: description generation
+  cheimarros?: string;        // Phase-specific: knowledge graph extraction
 }
 ```
 
@@ -104,6 +113,21 @@ interface QueueFileInfo {
 | `uploaded_at` | `string` | ISO 8601 timestamp when batch was created | `"2025-10-29T19:15:30.123Z"` |
 | `finalized_at` | `string` | ISO 8601 timestamp when batch was finalized | `"2025-10-29T19:20:45.456Z"` |
 | `metadata` | `object` | Custom metadata provided during batch initialization | `{"project": "archival-2025", "source": "scanner-01"}` |
+| `custom_prompts` | `object` (optional) | Custom AI prompts for pipeline processing phases | See below |
+
+#### Custom Prompts Fields
+
+The `custom_prompts` object allows batch-specific AI prompt customization:
+
+| Field | Type | Max Length | Description | Example |
+|-------|------|------------|-------------|---------|
+| `general` | `string` (optional) | 10,000 chars | Applied to all AI service calls | `"All content is from 18th century manuscripts"` |
+| `reorganization` | `string` (optional) | 10,000 chars | File reorganization phase (arke-organizer-service) | `"Group by subject matter rather than author"` |
+| `pinax` | `string` (optional) | 10,000 chars | Metadata extraction phase (arke-metadata-service) | `"Use Library of Congress Subject Headings"` |
+| `description` | `string` (optional) | 10,000 chars | Description generation phase (arke-description-service) | `"Write in scholarly, academic tone"` |
+| `cheimarros` | `string` (optional) | 10,000 chars | Knowledge graph extraction phase (arke-cheimarros-service) | `"Focus on people and institutions"` |
+
+**Total maximum:** 20,000 characters across all custom prompt fields.
 
 #### Batch Manifest Fields
 
@@ -169,6 +193,11 @@ Each object in the `files` array within a directory contains:
     "project": "archival-2025",
     "source": "scanner-01",
     "collection_id": "col_12345"
+  },
+  "custom_prompts": {
+    "general": "All content is from 18th century scientific manuscripts.",
+    "reorganization": "Group documents by subject matter rather than author.",
+    "pinax": "Use Library of Congress Subject Headings when possible."
   }
 }
 ```

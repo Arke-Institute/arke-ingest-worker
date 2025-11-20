@@ -7,14 +7,14 @@ import { ulid } from 'ulidx';
 import type { Context } from 'hono';
 import type { Env, InitBatchRequest, InitBatchResponse, BatchState } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
-import { validateBatchSize, validateLogicalPath, validateParentPi, checkParentPiExists } from '../lib/validation';
+import { validateBatchSize, validateLogicalPath, validateParentPi, checkParentPiExists, validateCustomPrompts } from '../lib/validation';
 
 export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Response> {
   try {
     const body = await c.req.json<InitBatchRequest>();
 
     // Validate request
-    const { uploader, root_path, file_count, total_size, metadata, parent_pi } = body;
+    const { uploader, root_path, file_count, total_size, metadata, parent_pi, custom_prompts } = body;
 
     if (!uploader || typeof uploader !== 'string') {
       return c.json({ error: 'Missing or invalid uploader' }, 400);
@@ -64,6 +64,12 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
       }, 400);
     }
 
+    // Validate custom prompts if provided
+    const customPromptsError = validateCustomPrompts(custom_prompts);
+    if (customPromptsError) {
+      return c.json({ error: customPromptsError }, 400);
+    }
+
     // Generate IDs
     const batchId = ulid();
     const sessionId = `sess_${ulid()}`;
@@ -78,6 +84,7 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
       file_count,
       total_size,
       metadata: metadata || {},
+      custom_prompts,
       files: [],
       status: 'uploading',
       created_at: new Date().toISOString(),

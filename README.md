@@ -77,6 +77,7 @@ arke-ingest-worker/
   - Create R2 prefix: `staging/{batchId}/...`
   - Track upload metadata (uploader, timestamp, file count)
   - Maintain batch state throughout upload session
+  - Support custom AI prompts for pipeline processing
 
 - **Job Enqueuing**
   - Verify all files completed before finalization
@@ -164,8 +165,9 @@ staging/
 
 - **Direct R2 Uploads**: Client uploads directly to R2 using presigned URLs (no worker bottleneck)
 - **Multipart Support**: Handles files up to 5 GB (tested to 10 GB, theoretical max 50 TB)
-- **Batch Tracking**: KV-based state management for upload sessions
+- **Batch Tracking**: Durable Object-based state management for upload sessions (atomic, no race conditions)
 - **Validation**: File type, size, and path validation before upload
+- **Custom AI Prompts**: Support for batch-specific and phase-specific AI prompt customization (see `SDK_CUSTOM_PROMPTS.md`)
 - **Idempotent**: Safe to retry any operation
 - **Resumable**: Multipart uploads can be resumed on failure
 

@@ -52,7 +52,7 @@ wrangler secret put R2_SECRET_ACCESS_KEY
 ### Request Flow
 
 1. **Initialize Batch** (`POST /api/batches/init`)
-   - Client provides uploader info, file count, total size, metadata
+   - Client provides uploader info, file count, total size, metadata, and optional custom prompts
    - Worker generates unique batch_id (ULID) and session_id
    - Creates Durable Object instance for atomic state management
    - Returns batch_id and session_id to client
@@ -167,6 +167,7 @@ All types are centralized in `src/types.ts`:
 - `BatchState` - Durable Object state structure
 - `FileState` - Individual file tracking within batch
 - `QueueMessage` - Message format sent to orchestrator queue
+- `CustomPrompts` - Custom AI prompts for pipeline processing
 - Request/Response types for each API endpoint
 
 **Key Statuses**:
@@ -181,8 +182,22 @@ When a batch is finalized, a message is sent to the `arke-batch-jobs` Cloudflare
 - Batch metadata (uploader, timestamps, file count, total bytes)
 - Complete file manifest with R2 keys and logical paths
 - Custom metadata passed during initialization
+- Custom prompts for AI processing (optional)
 
 The orchestrator consumer should process these messages to trigger the full ingestion pipeline (OCR, LLM processing, IPFS storage, etc.).
+
+## Custom Prompts
+
+The worker supports **custom AI prompts** that allow batch-specific customization of AI services throughout the pipeline. See `SDK_CUSTOM_PROMPTS.md` for SDK integration details.
+
+**Key Features**:
+- Optional `custom_prompts` field in batch initialization
+- 5 prompt types: `general`, `reorganization`, `pinax`, `description`, `cheimarros`
+- Validation: 10,000 chars per field, 20,000 chars total
+- Stored in BatchState and forwarded via queue message
+- See `src/lib/validation.ts:validateCustomPrompts()` for validation logic
+
+**Usage**: Clients can provide custom prompts during `POST /api/batches/init` to customize AI behavior for specific collections, domains, or use cases.
 
 ## R2 Storage Layout
 

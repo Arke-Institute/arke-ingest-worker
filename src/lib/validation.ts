@@ -2,6 +2,8 @@
  * Validation utilities for file uploads
  */
 
+import type { CustomPrompts } from '../types';
+
 /**
  * Validate file size
  */
@@ -107,4 +109,48 @@ export async function checkParentPiExists(
     const errorMsg = error instanceof Error ? error.message : String(error);
     return { exists: false, error: `Service binding error: ${errorMsg}` };
   }
+}
+
+/**
+ * Validate custom prompts
+ * Returns null if valid, error message if invalid
+ */
+export function validateCustomPrompts(customPrompts: CustomPrompts | undefined): string | null {
+  if (!customPrompts) {
+    return null; // Optional field
+  }
+
+  const MAX_PROMPT_LENGTH = 10000;
+  const MAX_TOTAL_LENGTH = 20000;
+
+  const fields: Array<keyof CustomPrompts> = [
+    'general',
+    'reorganization',
+    'pinax',
+    'description',
+    'cheimarros'
+  ];
+
+  let totalLength = 0;
+
+  for (const field of fields) {
+    const value = customPrompts[field];
+    if (value !== undefined) {
+      if (typeof value !== 'string') {
+        return `custom_prompts.${field} must be a string`;
+      }
+
+      if (value.length > MAX_PROMPT_LENGTH) {
+        return `custom_prompts.${field} exceeds maximum length of ${MAX_PROMPT_LENGTH} characters`;
+      }
+
+      totalLength += value.length;
+    }
+  }
+
+  if (totalLength > MAX_TOTAL_LENGTH) {
+    return `Total custom prompts length (${totalLength}) exceeds maximum of ${MAX_TOTAL_LENGTH} characters`;
+  }
+
+  return null; // Valid
 }

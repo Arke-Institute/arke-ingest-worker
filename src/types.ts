@@ -44,6 +44,7 @@ export interface BatchState {
   file_count: number;
   total_size: number;
   metadata: Record<string, any>;
+  custom_prompts?: CustomPrompts;
   files: FileState[];
   status: BatchStatus;
   created_at: string;
@@ -80,6 +81,18 @@ export interface ProcessingConfig {
 }
 
 // ============================================================================
+// Custom Prompts
+// ============================================================================
+
+export interface CustomPrompts {
+  general?: string;           // Applied to all AI service calls
+  reorganization?: string;    // Phase-specific: file reorganization
+  pinax?: string;             // Phase-specific: PINAX metadata extraction
+  description?: string;       // Phase-specific: description generation
+  cheimarros?: string;        // Phase-specific: knowledge graph extraction
+}
+
+// ============================================================================
 // API Request/Response Types
 // ============================================================================
 
@@ -91,6 +104,7 @@ export interface InitBatchRequest {
   total_size: number;
   metadata?: Record<string, any>;
   parent_pi?: string;
+  custom_prompts?: CustomPrompts;
 }
 
 export interface InitBatchResponse {
@@ -162,6 +176,7 @@ export interface BatchStatusResponse {
   created_at: string;
   enqueued_at?: string;
   metadata: Record<string, any>;
+  custom_prompts?: CustomPrompts;
   files: BatchStatusFileInfo[];
 }
 
@@ -194,6 +209,7 @@ export interface QueueMessage {
   uploaded_at: string;
   finalized_at: string;
   metadata: Record<string, any>;
+  custom_prompts?: CustomPrompts;
   // directories removed - now stored in manifest
 }
 

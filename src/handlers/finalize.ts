@@ -122,6 +122,7 @@ export async function handleFinalizeBatch(
       uploaded_at: state.created_at,
       finalized_at: new Date().toISOString(),
       metadata: state.metadata,
+      custom_prompts: state.custom_prompts,
     };
 
     // ALWAYS send to preprocessing queue

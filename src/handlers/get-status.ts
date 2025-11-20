@@ -40,6 +40,7 @@ export async function handleGetBatchStatus(c: Context<{ Bindings: Env }>): Promi
       created_at: state.created_at,
       enqueued_at: state.enqueued_at,
       metadata: state.metadata,
+      custom_prompts: state.custom_prompts,
       files: state.files.map((f: any) => ({
         r2_key: f.r2_key,
         file_name: f.file_name,

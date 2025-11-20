@@ -44,9 +44,30 @@ POST /api/batches/init
   "metadata": {
     "collection": "historical_records",
     "year": "1923"
+  },
+  "custom_prompts": {
+    "general": "All content is from 18th century scientific manuscripts.",
+    "reorganization": "Group documents by subject matter rather than author.",
+    "pinax": "Use Library of Congress Subject Headings when possible."
   }
 }
 ```
+
+**Fields:**
+
+- `uploader` (required): Name or identifier of the person uploading
+- `root_path` (required): Logical path prefix for all files in this batch
+- `file_count` (required): Expected number of files to upload
+- `total_size` (required): Total size in bytes of all files
+- `metadata` (optional): Custom metadata object
+- `parent_pi` (optional): Parent entity ULID (defaults to origin block)
+- `custom_prompts` (optional): Custom AI prompts for pipeline processing
+  - `general` (optional): Applied to all AI service calls (max 10,000 chars)
+  - `reorganization` (optional): File organization phase (max 10,000 chars)
+  - `pinax` (optional): Metadata extraction phase (max 10,000 chars)
+  - `description` (optional): Description generation phase (max 10,000 chars)
+  - `cheimarros` (optional): Knowledge graph extraction phase (max 10,000 chars)
+  - Total maximum: 20,000 characters across all prompts
 
 **Response (201):**
 
@@ -93,6 +114,11 @@ Returns the current status and progress of a batch upload, including individual 
   "metadata": {
     "collection": "historical_records",
     "year": "1923"
+  },
+  "custom_prompts": {
+    "general": "All content is from 18th century scientific manuscripts.",
+    "reorganization": "Group documents by subject matter rather than author.",
+    "pinax": "Use Library of Congress Subject Headings when possible."
   },
   "files": [
     {
