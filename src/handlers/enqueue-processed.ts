@@ -130,7 +130,15 @@ export async function handleEnqueueProcessed(
       uploaded_at: updatedState.created_at,
       finalized_at: new Date().toISOString(),
       metadata: updatedState.metadata,
+      custom_prompts: updatedState.custom_prompts,
     };
+
+    // Log queue message for debugging (especially custom_prompts)
+    console.log('Sending to BATCH_QUEUE:', JSON.stringify({
+      batch_id: batchId,
+      has_custom_prompts: !!updatedState.custom_prompts,
+      custom_prompts: updatedState.custom_prompts,
+    }, null, 2));
 
     // Send to batch queue
     await c.env.BATCH_QUEUE.send(queueMessage);

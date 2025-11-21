@@ -125,6 +125,13 @@ export async function handleFinalizeBatch(
       custom_prompts: state.custom_prompts,
     };
 
+    // Log queue message for debugging (especially custom_prompts)
+    console.log('Sending to PREPROCESS_QUEUE:', JSON.stringify({
+      batch_id: batchId,
+      has_custom_prompts: !!state.custom_prompts,
+      custom_prompts: state.custom_prompts,
+    }, null, 2));
+
     // ALWAYS send to preprocessing queue
     // Cloud Run will decide which files need processing
     await c.env.PREPROCESS_QUEUE.send(queueMessage);
