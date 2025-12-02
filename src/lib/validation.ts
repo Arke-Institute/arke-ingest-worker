@@ -120,8 +120,8 @@ export function validateCustomPrompts(customPrompts: CustomPrompts | undefined):
     return null; // Optional field
   }
 
-  const MAX_PROMPT_LENGTH = 10000;
-  const MAX_TOTAL_LENGTH = 20000;
+  const MAX_PROMPT_LENGTH = 60000;  // 60KB per field - supports metadata file uploads
+  const MAX_TOTAL_LENGTH = 80000;   // 80KB total - slightly more permissive than SDK
 
   const fields: Array<keyof CustomPrompts> = [
     'general',
