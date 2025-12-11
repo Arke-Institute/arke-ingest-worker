@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Edge worker that orchestrates file uploads to R2 storage via presigned URLs and enqueues batch processing jobs. Acts as the ingestion pipeline's entry point.
+Edge worker that orchestrates file uploads to R2 storage via presigned URLs, creates IPFS entities during finalization (Early Root PI), and enqueues batch processing jobs. Acts as the ingestion pipeline's entry point.
 
-**Status**: ✅ Implementation complete (v0.1.0)
+**Status**: ✅ Implementation complete (v0.2.0 - Early Root PI)
 
 ## Quick Start
 
@@ -37,8 +37,9 @@ See [SETUP.md](./SETUP.md) for detailed setup instructions and [API.md](./API.md
 
 **Bindings**:
 - R2 bucket (`STAGING_BUCKET`) - for raw file storage
-- Cloudflare Queue (`BATCH_QUEUE`) - for job dispatch
-- KV namespace (`BATCH_STATE`) - for upload session tracking
+- Cloudflare Queue (`PREPROCESS_QUEUE`) - for preprocessing job dispatch
+- Durable Object (`BATCH_STATE_DO`) - for atomic batch state management
+- Service Binding (`ARKE_IPFS_API`) - for IPFS entity creation
 
 ## Project Structure
 
@@ -49,11 +50,17 @@ arke-ingest-worker/
 │   │   ├── init-batch.ts      # POST /api/batches/init
 │   │   ├── start-file.ts      # POST /api/batches/:id/files/start
 │   │   ├── complete-file.ts   # POST /api/batches/:id/files/complete
-│   │   └── finalize.ts        # POST /api/batches/:id/finalize
+│   │   ├── finalize.ts        # POST /api/batches/:id/finalize
+│   │   └── get-status.ts      # GET /api/batches/:id/status
+│   ├── durable-objects/
+│   │   └── BatchState.ts      # Atomic batch state + discovery alarms
+│   ├── services/
+│   │   ├── initial-discovery.ts  # IPFS entity creation logic
+│   │   └── ipfs-wrapper.ts       # IPFS API client
 │   ├── lib/
-│   │   ├── batch-state.ts     # KV state management
 │   │   ├── presigned.ts       # Presigned URL generation
-│   │   └── validation.ts      # Input validation
+│   │   ├── validation.ts      # Input validation
+│   │   └── durable-object-helpers.ts  # DO access helpers
 │   ├── types.ts               # TypeScript types
 │   └── index.ts               # Hono app entry point
 ├── wrangler.jsonc             # Cloudflare Worker config
@@ -70,7 +77,7 @@ arke-ingest-worker/
   - Generate presigned URLs for direct R2 uploads
   - Support both simple uploads (<5MB) and multipart uploads (≥5MB)
   - Validate file types, sizes, and paths
-  - Track upload state in KV namespace
+  - Track upload state atomically in Durable Objects
 
 - **Batch Management**
   - Generate unique `batchId` (ULID)
@@ -79,59 +86,84 @@ arke-ingest-worker/
   - Maintain batch state throughout upload session
   - Support custom AI prompts for pipeline processing
 
+- **Early Root PI (Initial Discovery)**
+  - Create IPFS entities during finalization (before preprocessing)
+  - Upload text files (md, txt, json, xml, csv, html) to IPFS
+  - Build directory hierarchy as entity tree
+  - Return `root_pi` to client immediately or via polling
+  - Sync path for small batches (<50 dirs, <100 text files)
+  - Async path with DO alarms for large batches
+
 - **Job Enqueuing**
   - Verify all files completed before finalization
   - Construct batch message with complete file manifest
-  - Post to Cloudflare Queue for orchestrator processing
-  - Return batch status to client
-
-- **Lightweight Design**
-  - No file processing (OCR, LLM, IPFS, etc.)
-  - Client uploads directly to R2 (worker never touches file data)
-  - Pure coordination and state management
+  - Include discovery results (root_pi, node_pis) in queue message
+  - Post to preprocessing queue for further processing
 
 ## Interfaces
 
 **Called By**: `arke-upload-cli` or `arke-ingest-ui` (upload clients)
 
 **Calls**:
-- R2 API (generate presigned URLs, manage multipart uploads)
-- Cloudflare Queue API (enqueue batch jobs)
-- KV API (track batch state)
+- R2 API (generate presigned URLs, manage multipart uploads, read files)
+- Cloudflare Queue API (enqueue preprocessing jobs)
+- Durable Object API (atomic batch state management)
+- IPFS API via service binding (upload content, create entities)
 
-**Enqueues For**: `arke-orchestrator` (queue consumer)
+**Enqueues For**: `arke-preprocessor` (queue consumer)
 
 ## Upload Flow
 
 ```
 1. Client → Worker: POST /api/batches/init
-   Worker → Client: {batch_id}
+   Worker → Client: {batch_id, session_id}
 
 2. For each file:
    Client → Worker: POST /api/batches/{id}/files/start
-   Worker → Client: {presigned_urls}
+   Worker → Client: {presigned_url(s), r2_key}
 
    Client → R2: PUT <presigned_url> (direct upload, bypasses worker)
    R2 → Client: {ETag}
 
    Client → Worker: POST /api/batches/{id}/files/complete
-   Worker → R2: Complete multipart upload
+   Worker → R2: Complete multipart upload (if applicable)
 
 3. Client → Worker: POST /api/batches/{id}/finalize
-   Worker → Queue: Enqueue batch job
-   Worker → Client: {status: "enqueued"}
+   Worker: Run Initial Discovery (create IPFS entities)
+   Worker → Queue: Enqueue preprocessing job
+   Worker → Client: {status, root_pi} (sync) or {status: "discovery"} (async)
+
+4. (If async) Client polls: GET /api/batches/{id}/status
+   Worker → Client: {status, root_pi, discovery_progress}
+```
+
+## Batch Status Flow
+
+```
+uploading → discovery → preprocessing → (downstream processing)
+    │           │
+    │           └── Async discovery in progress (poll for root_pi)
+    │
+    └── Files being uploaded to R2
+
+Status values:
+- uploading: Client is uploading files
+- discovery: Initial Discovery running (creating IPFS entities)
+- preprocessing: Discovery complete, batch queued for preprocessing
+- failed: Discovery or other operation failed
 ```
 
 ## Tech Stack
 
-- **Runtime**: Cloudflare Workers
+- **Runtime**: Cloudflare Workers + Durable Objects
 - **Language**: TypeScript
 - **Framework**: Hono (lightweight web framework)
 - **Storage**: Cloudflare R2
 - **Queue**: Cloudflare Queues
-- **State**: Cloudflare KV
+- **State**: Durable Objects (atomic, single-threaded)
 - **ID Generation**: ULID library (`ulidx`)
 - **Presigned URLs**: `aws4fetch` (AWS v4 signatures)
+- **IPFS**: Service binding to `arke-ipfs-api` worker
 
 ## API Endpoints
 
@@ -140,7 +172,8 @@ See [API.md](./API.md) for detailed documentation.
 - `POST /api/batches/init` - Initialize batch
 - `POST /api/batches/:id/files/start` - Get presigned URLs for file
 - `POST /api/batches/:id/files/complete` - Mark file as uploaded
-- `POST /api/batches/:id/finalize` - Finalize batch and enqueue
+- `POST /api/batches/:id/finalize` - Finalize batch, run discovery, enqueue
+- `GET /api/batches/:id/status` - Get batch status and root_pi
 
 ## R2 Storage Structure
 
@@ -166,6 +199,8 @@ staging/
 - **Direct R2 Uploads**: Client uploads directly to R2 using presigned URLs (no worker bottleneck)
 - **Multipart Support**: Handles files up to 5 GB (tested to 10 GB, theoretical max 50 TB)
 - **Batch Tracking**: Durable Object-based state management for upload sessions (atomic, no race conditions)
+- **Early Root PI**: IPFS entities created during finalization, root_pi available immediately or via polling
+- **Scalable Discovery**: Item-level batching handles 1000+ files per directory via DO alarms
 - **Validation**: File type, size, and path validation before upload
 - **Custom AI Prompts**: Support for batch-specific and phase-specific AI prompt customization (see `SDK_CUSTOM_PROMPTS.md`)
 - **Idempotent**: Safe to retry any operation
@@ -178,15 +213,45 @@ Size limits (configurable in `wrangler.jsonc`):
 - **Max batch size**: 100 GB (default)
 - **Multipart threshold**: 5 MB (files ≥5MB use multipart)
 - **Part size**: 10 MB (multipart chunks)
-- **Batch state TTL**: 24 hours
+
+Discovery thresholds:
+- **Sync discovery**: < 50 directories AND < 100 text files
+- **Async discovery**: ≥ 50 directories OR ≥ 100 text files
+- **Batch size**: 100 files/entities per alarm invocation
 
 Allowed file extensions:
 - Images: `.tiff`, `.tif`, `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`
-- Documents: `.json`, `.xml`, `.txt`, `.csv`, `.pdf`
+- Documents: `.json`, `.xml`, `.txt`, `.csv`, `.pdf`, `.md`
+- Text files uploaded to IPFS: `.md`, `.txt`, `.json`, `.xml`, `.csv`, `.html`, `.htm`
 
-## Next Steps
+## Client Integration
 
-1. **Deploy Worker** - Follow [SETUP.md](./SETUP.md)
-2. **Build CLI Client** - Create `arke-upload-cli` to consume this API
-3. **Build Orchestrator** - Create queue consumer to process batches
-4. **Add Monitoring** - Set up logging, metrics, and alerts
+Upload clients should:
+
+1. **Initialize batch** - Call `POST /api/batches/init`
+2. **Upload files** - For each file: start → upload to R2 → complete
+3. **Finalize** - Call `POST /api/batches/:id/finalize`
+4. **Get root_pi**:
+   - If response contains `root_pi`: done (sync path)
+   - If `status: "discovery"`: poll `GET /api/batches/:id/status` until `root_pi` appears
+5. **Use root_pi** - Entity is immediately browsable at `https://arke.institute/e/{root_pi}`
+
+Example polling logic:
+```javascript
+const response = await fetch(`/api/batches/${batchId}/finalize`, { method: 'POST' });
+const data = await response.json();
+
+if (data.root_pi) {
+  // Sync path - root_pi available immediately
+  return data.root_pi;
+}
+
+// Async path - poll for root_pi
+while (true) {
+  await sleep(2000);
+  const status = await fetch(`/api/batches/${batchId}/status`).then(r => r.json());
+  if (status.root_pi) return status.root_pi;
+  if (status.status === 'failed') throw new Error('Discovery failed');
+  console.log(`Discovery: ${status.discovery_progress?.phase}`);
+}
+```

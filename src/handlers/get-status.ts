@@ -53,7 +53,18 @@ export async function handleGetBatchStatus(c: Context<{ Bindings: Env }>): Promi
         completed_at: f.completed_at,
         cid: f.cid,
       })),
+      // Discovery state
+      root_pi: state.root_pi,
     };
+
+    // Add discovery progress if in discovery phase
+    if (state.status === 'discovery' && state.discovery_state) {
+      response.discovery_progress = {
+        total: state.discovery_state.directories_total,
+        published: state.discovery_state.directories_published,
+        phase: state.discovery_state.phase,
+      };
+    }
 
     return c.json(response, 200);
   } catch (error) {

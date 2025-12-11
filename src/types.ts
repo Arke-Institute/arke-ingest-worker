@@ -49,9 +49,63 @@ export interface BatchState {
   status: BatchStatus;
   created_at: string;
   enqueued_at?: string;
+  // Discovery state (populated during finalization)
+  root_pi?: string;
+  discovery_state?: DiscoveryState;
 }
 
-export type BatchStatus = 'uploading' | 'preprocessing' | 'enqueued' | 'processing' | 'completed' | 'failed';
+export type BatchStatus = 'uploading' | 'discovery' | 'preprocessing' | 'enqueued' | 'processing' | 'completed' | 'failed';
+
+// ============================================================================
+// Discovery State (Initial Discovery during finalization)
+// ============================================================================
+
+export type DiscoveryPhase = 'UPLOADING' | 'PUBLISHING' | 'RELATIONSHIPS' | 'DONE' | 'ERROR';
+
+export interface DiscoveryTextFile {
+  filename: string;
+  r2_key: string;
+  cid?: string; // Set after upload to IPFS
+}
+
+export interface DiscoveryNode {
+  path: string;
+  depth: number;
+  parent_path?: string;
+  children_paths: string[];
+  text_files: DiscoveryTextFile[];
+  published: boolean;
+  pi?: string;
+  tip?: string;
+  version?: number;
+}
+
+export interface DiscoveryState {
+  nodes: Record<string, DiscoveryNode>;
+  directories_total: number;
+  directories_published: number;
+  node_pis: Record<string, string>;
+  node_tips: Record<string, string>;
+  node_versions: Record<string, number>;
+  phase: DiscoveryPhase;
+  current_depth: number;
+  // Item-level tracking
+  files_total: number;
+  files_uploaded: number;
+  error?: string;
+  retry_count?: number;
+}
+
+export interface DiscoveryResult {
+  root_pi: string;
+  node_pis: Record<string, string>;
+  node_tips: Record<string, string>;
+  node_versions: Record<string, number>;
+}
+
+// ============================================================================
+// File State
+// ============================================================================
 
 export interface FileState {
   r2_key: string;
@@ -159,6 +213,11 @@ export interface FinalizeBatchResponse {
   files_uploaded: number;
   total_bytes: number;
   r2_prefix: string;
+  root_pi?: string;
+  discovery_progress?: {
+    total: number;
+    published: number;
+  };
 }
 
 // GET /api/batches/:batchId/status
@@ -178,6 +237,12 @@ export interface BatchStatusResponse {
   metadata: Record<string, any>;
   custom_prompts?: CustomPrompts;
   files: BatchStatusFileInfo[];
+  root_pi?: string;
+  discovery_progress?: {
+    total: number;
+    published: number;
+    phase?: string;
+  };
 }
 
 export interface BatchStatusFileInfo {
@@ -210,7 +275,11 @@ export interface QueueMessage {
   finalized_at: string;
   metadata: Record<string, any>;
   custom_prompts?: CustomPrompts;
-  // directories removed - now stored in manifest
+  // Discovery results (from Initial Discovery phase)
+  root_pi?: string;
+  node_pis?: Record<string, string>;
+  node_tips?: Record<string, string>;
+  node_versions?: Record<string, number>;
 }
 
 export interface BatchManifest {
