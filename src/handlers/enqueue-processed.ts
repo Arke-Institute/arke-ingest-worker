@@ -131,13 +131,21 @@ export async function handleEnqueueProcessed(
       finalized_at: new Date().toISOString(),
       metadata: updatedState.metadata,
       custom_prompts: updatedState.custom_prompts,
+      // Entity tracking from Initial Discovery (passed through preprocessing)
+      root_pi: body.root_pi,
+      node_pis: body.node_pis,
+      node_tips: body.node_tips,
+      node_versions: body.node_versions,
     };
 
-    // Log queue message for debugging (especially custom_prompts)
+    // Log queue message for debugging
     console.log('Sending to BATCH_QUEUE:', JSON.stringify({
       batch_id: batchId,
       has_custom_prompts: !!updatedState.custom_prompts,
       custom_prompts: updatedState.custom_prompts,
+      has_entity_tracking: !!body.root_pi,
+      root_pi: body.root_pi,
+      node_count: body.node_pis ? Object.keys(body.node_pis).length : 0,
     }, null, 2));
 
     // Send to batch queue

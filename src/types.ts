@@ -324,6 +324,11 @@ export const PART_SIZE = 10 * 1024 * 1024; // 10 MB
 // POST /api/batches/:batchId/enqueue-processed
 export interface EnqueueProcessedRequest {
   files: ProcessedFileInfo[];
+  // Entity tracking from Initial Discovery (passed through preprocessing)
+  root_pi?: string;
+  node_pis?: Record<string, string>;
+  node_tips?: Record<string, string>;
+  node_versions?: Record<string, number>;
 }
 
 export interface ProcessedFileInfo {
