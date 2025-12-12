@@ -57,8 +57,7 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
 
       // Check user has permission to upload to this parent PI
       const userId = c.req.header('X-User-Id');
-      const userEmail = c.req.header('X-User-Email');
-      if (!userId || !userEmail) {
+      if (!userId) {
         // Defensive check - gateway should always provide this for authenticated requests
         return c.json({
           error: 'Authentication required: Missing user context'
@@ -68,7 +67,6 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
       const permissionResult = await checkUploadPermission(
         parentPiValue,
         userId,
-        userEmail,
         c.env.COLLECTIONS_WORKER
       );
 

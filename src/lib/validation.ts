@@ -185,19 +185,17 @@ export interface PiPermissions {
 export async function checkUploadPermission(
   parentPi: string,
   userId: string,
-  userEmail: string,
   collectionsWorker: Fetcher
 ): Promise<{ allowed: boolean; error?: string }> {
   try {
     // Call the collections worker via service binding
-    // Include both X-User-Id and X-User-Email headers (collections worker requires both)
+    // Only X-User-Id is required for authentication
     const response = await collectionsWorker.fetch(
       new Request(`https://internal/pi/${parentPi}/permissions`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
           'X-User-Id': userId,
-          'X-User-Email': userEmail,
         }
       })
     );
