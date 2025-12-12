@@ -78,6 +78,7 @@ export interface DiscoveryNode {
   children_paths: string[];
   text_files: DiscoveryTextFile[];
   published: boolean;
+  relationships_set?: boolean; // True once parent_pi has been set on all children
   pi?: string;
   tip?: string;
   version?: number;

@@ -22,7 +22,7 @@ import type {
 import {
   buildDiscoveryTree,
   processDiscoveryBatch,
-  establishRelationships,
+  attachToExternalParent,
 } from '../services/initial-discovery';
 
 // Discovery configuration
@@ -241,8 +241,12 @@ export class BatchStateObject extends DurableObject<Env> {
     const discoveryState = state.discovery_state;
 
     try {
-      if (discoveryState.phase === 'UPLOADING' || discoveryState.phase === 'PUBLISHING') {
-        // Process next batch (uploads or entity creation based on phase)
+      if (
+        discoveryState.phase === 'UPLOADING' ||
+        discoveryState.phase === 'PUBLISHING' ||
+        discoveryState.phase === 'RELATIONSHIPS'
+      ) {
+        // Process next batch (uploads, entity creation, or relationship setup based on phase)
         const hasMore = await processDiscoveryBatch(
           discoveryState,
           this.env,
@@ -254,20 +258,22 @@ export class BatchStateObject extends DurableObject<Env> {
 
         if (hasMore) {
           await this.ctx.storage.setAlarm(Date.now() + DISCOVERY_ALARM_DELAY);
+        } else {
+          // All phases complete - attach to external parent if specified
+          if (state.parent_pi) {
+            await attachToExternalParent(discoveryState, this.env, state.parent_pi);
+          }
+
+          // Discovery complete!
+          state.root_pi = discoveryState.node_pis['/'];
+          state.status = 'preprocessing';
+          await this.ctx.storage.put('state', state);
+
+          // Enqueue to preprocessor
+          await this.enqueueToPreprocessor(state, discoveryState);
+
+          console.log(`[Discovery] Complete, root_pi: ${state.root_pi}`);
         }
-      } else if (discoveryState.phase === 'RELATIONSHIPS') {
-        // Establish relationships (attach to external parent)
-        await establishRelationships(discoveryState, this.env, state.parent_pi);
-
-        // Discovery complete!
-        state.root_pi = discoveryState.node_pis['/'];
-        state.status = 'preprocessing';
-        await this.ctx.storage.put('state', state);
-
-        // Enqueue to preprocessor
-        await this.enqueueToPreprocessor(state, discoveryState);
-
-        console.log(`[Discovery] Complete, root_pi: ${state.root_pi}`);
       } else if (discoveryState.phase === 'DONE') {
         // Already done, nothing to do
         console.log('[Discovery] Alarm called but phase is DONE, ignoring');

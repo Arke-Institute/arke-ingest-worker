@@ -348,6 +348,8 @@ export async function processDiscoveryBatch(
       return publishDirectoryBatch(state, env, entityBatchSize);
 
     case 'RELATIONSHIPS':
+      return establishRelationshipsBatch(state, env, entityBatchSize);
+
     case 'DONE':
     case 'ERROR':
       return false;
@@ -359,18 +361,109 @@ export async function processDiscoveryBatch(
 }
 
 /**
- * Establish parent-child relationships
- * Must be called after all directories are published
+ * Get parents that need relationship setup (have children, published, not yet processed)
  */
-export async function establishRelationships(
+function getParentsNeedingRelationships(state: DiscoveryState): DiscoveryNode[] {
+  return Object.values(state.nodes).filter(
+    (node) =>
+      node.children_paths.length > 0 &&
+      node.pi &&
+      node.published &&
+      !node.relationships_set
+  );
+}
+
+/**
+ * Set parent_pi on children for a single parent node
+ */
+async function setParentPiOnChildren(
+  parentNode: DiscoveryNode,
+  state: DiscoveryState,
+  ipfsClient: IPFSWrapperClient
+): Promise<void> {
+  const childPis = parentNode.children_paths
+    .map((path) => state.node_pis[path])
+    .filter((pi): pi is string => !!pi);
+
+  if (childPis.length === 0) {
+    parentNode.relationships_set = true;
+    return;
+  }
+
+  // updateRelations will set parent_pi on all children
+  // The children are already in the parent's children_pi array,
+  // but this call triggers the reverse link setup
+  await ipfsClient.updateRelations({
+    parent_pi: parentNode.pi!,
+    add_children: childPis,
+    note: 'Set parent_pi on children',
+  });
+
+  parentNode.relationships_set = true;
+  console.log(
+    `[Discovery] Set parent_pi on ${childPis.length} children of ${parentNode.path} (${parentNode.pi})`
+  );
+}
+
+/**
+ * Establish parent-child relationships in batches (bidirectional)
+ * Processes N parents per batch in parallel.
+ * Returns true if more work remains.
+ */
+export async function establishRelationshipsBatch(
   state: DiscoveryState,
   env: Env,
-  parentPi?: string
+  batchSize: number = ENTITY_BATCH_SIZE
+): Promise<boolean> {
+  const ipfsClient = new IPFSWrapperClient(env.ARKE_IPFS_API);
+
+  // Get parents that need relationship setup
+  const pendingParents = getParentsNeedingRelationships(state).slice(0, batchSize);
+
+  if (pendingParents.length === 0) {
+    // All internal relationships done, move to DONE phase
+    state.phase = 'DONE';
+    console.log('[Discovery] All relationships established, phase complete');
+    return false;
+  }
+
+  const totalPending = getParentsNeedingRelationships(state).length;
+  console.log(
+    `[Discovery] Setting parent_pi for ${pendingParents.length} parents (${totalPending} remaining)`
+  );
+
+  // Process parents in parallel (within batch)
+  await Promise.all(
+    pendingParents.map(async (parentNode) => {
+      try {
+        await setParentPiOnChildren(parentNode, state, ipfsClient);
+      } catch (error) {
+        console.error(
+          `[Discovery] Failed to set parent_pi for children of ${parentNode.path}:`,
+          error
+        );
+        // Mark as done to avoid infinite retry - log the error
+        parentNode.relationships_set = true;
+      }
+    })
+  );
+
+  // Check if more parents remain
+  const remaining = getParentsNeedingRelationships(state).length;
+  return remaining > 0;
+}
+
+/**
+ * Attach root to external parent (called after all internal relationships are set)
+ */
+export async function attachToExternalParent(
+  state: DiscoveryState,
+  env: Env,
+  parentPi: string
 ): Promise<void> {
   const ipfsClient = new IPFSWrapperClient(env.ARKE_IPFS_API);
 
-  // Attach to external parent if specified
-  if (parentPi && state.node_pis['/']) {
+  if (state.node_pis['/']) {
     try {
       await ipfsClient.addChildToParent({
         parent_pi: parentPi,
@@ -382,9 +475,27 @@ export async function establishRelationships(
       // Don't fail discovery for this - root entity still exists
     }
   }
+}
 
-  state.phase = 'DONE';
-  console.log('[Discovery] Relationships established, phase complete');
+/**
+ * Establish all relationships synchronously (for sync discovery)
+ * Processes all parents in parallel batches.
+ */
+async function establishAllRelationships(
+  state: DiscoveryState,
+  env: Env,
+  parentPi?: string
+): Promise<void> {
+  // Process internal relationships in large batches
+  while (state.phase === 'RELATIONSHIPS') {
+    const hasMore = await establishRelationshipsBatch(state, env, 1000);
+    if (!hasMore) break;
+  }
+
+  // Attach to external parent if specified
+  if (parentPi) {
+    await attachToExternalParent(state, env, parentPi);
+  }
 }
 
 /**
@@ -417,8 +528,8 @@ export async function runSyncDiscovery(
     await publishDirectoryBatch(state, env, 1000);
   }
 
-  // Establish relationships (attach to external parent)
-  await establishRelationships(state, env, parentPi);
+  // Establish bidirectional relationships (set parent_pi on children, attach to external parent)
+  await establishAllRelationships(state, env, parentPi);
 
   const rootPi = state.node_pis['/'];
   if (!rootPi) {
