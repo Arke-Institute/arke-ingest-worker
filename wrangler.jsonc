@@ -30,12 +30,17 @@
     ]
   },
 
-  // Service binding to Arke IPFS API worker
+  // Service bindings to other workers
   "services": [
     {
       "binding": "ARKE_IPFS_API",
       "service": "arke-ipfs-api"
       // NOTE: Must match the name of the deployed Arke IPFS API worker
+    },
+    {
+      "binding": "COLLECTIONS_WORKER",
+      "service": "arke-collections-worker"
+      // NOTE: Used for permission checks on parent_pi during upload
     }
   ],
 

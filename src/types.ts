@@ -22,6 +22,9 @@ export interface Env {
   // Service binding to Arke IPFS API worker
   ARKE_IPFS_API: Fetcher;
 
+  // Service binding to Collections Worker for permission checks
+  COLLECTIONS_WORKER: Fetcher;
+
   // Environment variables
   R2_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;

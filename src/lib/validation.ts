@@ -154,3 +154,90 @@ export function validateCustomPrompts(customPrompts: CustomPrompts | undefined):
 
   return null; // Valid
 }
+
+/**
+ * Permission check response from collections worker
+ */
+export interface PiPermissions {
+  pi: string;
+  canView: boolean;
+  canEdit: boolean;
+  canAdminister: boolean;
+  collection: {
+    id: string;
+    title: string;
+    slug: string;
+    visibility: string;
+    role: string | null;
+    rootPi: string;
+    hops: number;
+  } | null;
+}
+
+/**
+ * Check if user has permission to upload to a parent PI
+ * Uses worker-to-worker communication via service binding
+ *
+ * Returns:
+ * - { allowed: true } if user can edit the PI
+ * - { allowed: false, error: string } if permission denied
+ */
+export async function checkUploadPermission(
+  parentPi: string,
+  userId: string,
+  userEmail: string,
+  collectionsWorker: Fetcher
+): Promise<{ allowed: boolean; error?: string }> {
+  try {
+    // Call the collections worker via service binding
+    // Include both X-User-Id and X-User-Email headers (collections worker requires both)
+    const response = await collectionsWorker.fetch(
+      new Request(`https://internal/pi/${parentPi}/permissions`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'X-User-Id': userId,
+          'X-User-Email': userEmail,
+        }
+      })
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        allowed: false,
+        error: `Permission check failed: ${response.status} - ${errorText}`
+      };
+    }
+
+    const permissions: PiPermissions = await response.json();
+
+    // canEdit is true for:
+    // 1. "Free" PIs (not in any collection) - collection is null
+    // 2. Users with owner or editor role on the collection
+    if (permissions.canEdit) {
+      return { allowed: true };
+    }
+
+    // Build descriptive error message
+    if (permissions.collection) {
+      const role = permissions.collection.role || 'none';
+      return {
+        allowed: false,
+        error: `Permission denied: You need editor or owner role on collection "${permissions.collection.title}" (current role: ${role})`
+      };
+    }
+
+    // Shouldn't reach here (free PIs should have canEdit=true), but handle defensively
+    return {
+      allowed: false,
+      error: 'Permission denied: Unable to determine edit access'
+    };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    return {
+      allowed: false,
+      error: `Permission check error: ${errorMsg}`
+    };
+  }
+}

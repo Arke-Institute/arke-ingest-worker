@@ -7,7 +7,7 @@ import { ulid } from 'ulidx';
 import type { Context } from 'hono';
 import type { Env, InitBatchRequest, InitBatchResponse, BatchState } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
-import { validateBatchSize, validateLogicalPath, validateParentPi, checkParentPiExists, validateCustomPrompts } from '../lib/validation';
+import { validateBatchSize, validateLogicalPath, validateParentPi, checkParentPiExists, validateCustomPrompts, checkUploadPermission } from '../lib/validation';
 
 export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Response> {
   try {
@@ -53,6 +53,29 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
         return c.json({
           error: checkResult.error || 'Parent PI does not exist in archive'
         }, 404);
+      }
+
+      // Check user has permission to upload to this parent PI
+      const userId = c.req.header('X-User-Id');
+      const userEmail = c.req.header('X-User-Email');
+      if (!userId || !userEmail) {
+        // Defensive check - gateway should always provide this for authenticated requests
+        return c.json({
+          error: 'Authentication required: Missing user context'
+        }, 401);
+      }
+
+      const permissionResult = await checkUploadPermission(
+        parentPiValue,
+        userId,
+        userEmail,
+        c.env.COLLECTIONS_WORKER
+      );
+
+      if (!permissionResult.allowed) {
+        return c.json({
+          error: permissionResult.error || 'Permission denied: You do not have edit access to this PI'
+        }, 403);
       }
     }
 
