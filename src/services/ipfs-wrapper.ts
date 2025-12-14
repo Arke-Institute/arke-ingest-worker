@@ -6,14 +6,19 @@
  */
 
 export interface CreateEntityRequest {
+  type: string;                          // REQUIRED: Entity type (e.g., "PI", "Collection")
   components: Record<string, string>;
   children_pi: string[];
   parent_pi?: string;
+  label?: string;                        // Optional: Display name
+  description?: string;                  // Optional: Human-readable description
   note?: string;
 }
 
 export interface CreateEntityResponse {
-  pi: string;
+  id: string;                            // Entity ID (primary field)
+  pi: string;                            // Entity PI (alias for compatibility)
+  type: string;                          // Entity type
   ver: number;
   manifest_cid: string;
   tip: string;

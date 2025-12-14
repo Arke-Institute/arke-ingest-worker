@@ -267,6 +267,7 @@ async function publishDirectory(
 
   // Create entity (v1 with text files and child relationships)
   const result = await ipfsClient.createEntity({
+    type: 'PI',
     components,
     children_pi: childPis,
     note: 'Initial discovery snapshot',
