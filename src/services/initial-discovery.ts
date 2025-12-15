@@ -274,18 +274,18 @@ async function publishDirectory(
   });
 
   // Update node and state tracking
-  node.pi = result.pi;
+  node.pi = result.id;
   node.tip = result.tip;
   node.version = result.ver;
   node.published = true;
 
-  state.node_pis[node.path] = result.pi;
+  state.node_pis[node.path] = result.id;
   state.node_tips[node.path] = result.tip;
   state.node_versions[node.path] = result.ver;
   state.directories_published++;
 
   console.log(
-    `[Discovery] Published ${node.path}: PI=${result.pi}, ${Object.keys(components).length} components, ${childPis.length} children`
+    `[Discovery] Published ${node.path}: PI=${result.id}, ${Object.keys(components).length} components, ${childPis.length} children`
   );
 }
 

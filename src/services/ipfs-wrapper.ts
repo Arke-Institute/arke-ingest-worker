@@ -16,8 +16,7 @@ export interface CreateEntityRequest {
 }
 
 export interface CreateEntityResponse {
-  id: string;                            // Entity ID (primary field)
-  pi: string;                            // Entity PI (alias for compatibility)
+  id: string;                            // Entity ID
   type: string;                          // Entity type
   ver: number;
   manifest_cid: string;
@@ -34,7 +33,7 @@ export interface AppendVersionRequest {
 }
 
 export interface AppendVersionResponse {
-  pi: string;
+  id: string;                            // Entity ID
   ver: number;
   manifest_cid: string;
   tip: string;
