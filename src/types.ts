@@ -134,8 +134,10 @@ export type FileStatus = 'uploading' | 'completed';
 
 export interface ProcessingConfig {
   ocr: boolean;
-  describe: boolean;
+  reorganize?: boolean;       // undefined = use threshold, true = always, false = never
   pinax: boolean;
+  cheimarros: boolean;
+  describe: boolean;
 }
 
 // ============================================================================
@@ -263,12 +265,38 @@ export interface BatchStatusFileInfo {
 }
 
 // ============================================================================
-// Queue Message
+// Queue Message (Simplified PI-only format for orchestrator)
 // ============================================================================
 
 export interface QueueMessage {
   batch_id: string;
-  manifest_r2_key: string; // Reference to manifest stored in R2
+  root_pi: string;
+
+  // PI tree - flat array with parent/children refs
+  pis: PINode[];
+
+  // Optional configuration
+  parent_pi?: string;         // For attaching to archive hierarchy
+  custom_prompts?: CustomPrompts;
+  custom_note?: string;
+  institution?: string;       // Force institution in PINAX extraction
+}
+
+// PI node in the tree structure
+export interface PINode {
+  pi: string;
+  parent_pi?: string;
+  children_pi: string[];
+  processing_config: ProcessingConfig;
+}
+
+// ============================================================================
+// Preprocessor Queue Message (sent to Cloud Run preprocessor)
+// ============================================================================
+
+export interface PreprocessorQueueMessage {
+  batch_id: string;
+  manifest_r2_key: string;
   r2_prefix: string;
   uploader: string;
   root_path: string;
@@ -279,11 +307,11 @@ export interface QueueMessage {
   finalized_at: string;
   metadata: Record<string, any>;
   custom_prompts?: CustomPrompts;
-  // Discovery results (from Initial Discovery phase)
-  root_pi?: string;
-  node_pis?: Record<string, string>;
-  node_tips?: Record<string, string>;
-  node_versions?: Record<string, number>;
+  // Discovery results from Initial Discovery
+  root_pi: string;
+  node_pis: Record<string, string>;
+  node_tips: Record<string, string>;
+  node_versions: Record<string, number>;
 }
 
 export interface BatchManifest {

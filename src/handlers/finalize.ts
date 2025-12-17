@@ -13,7 +13,7 @@ import type { Context } from 'hono';
 import type {
   Env,
   FinalizeBatchResponse,
-  QueueMessage,
+  PreprocessorQueueMessage,
   DirectoryGroup,
   BatchManifest,
 } from '../types';
@@ -201,8 +201,15 @@ export async function handleFinalizeBatch(
         // Continue without discovery - preprocessor/orchestrator will handle it
       }
 
+      // If discovery failed, we can't proceed with preprocessing
+      if (!discoveryResult) {
+        return c.json({
+          error: 'Discovery failed and is required for preprocessing',
+        }, 500);
+      }
+
       // Construct queue message with discovery results
-      const queueMessage: QueueMessage = {
+      const queueMessage: PreprocessorQueueMessage = {
         batch_id: batchId,
         manifest_r2_key: manifestKey,
         r2_prefix: `staging/${batchId}/`,
@@ -216,11 +223,11 @@ export async function handleFinalizeBatch(
         metadata: state.metadata,
         custom_prompts: state.custom_prompts,
 
-        // Discovery results (if available)
-        root_pi: discoveryResult?.root_pi,
-        node_pis: discoveryResult?.node_pis,
-        node_tips: discoveryResult?.node_tips,
-        node_versions: discoveryResult?.node_versions,
+        // Discovery results
+        root_pi: discoveryResult.root_pi,
+        node_pis: discoveryResult.node_pis,
+        node_tips: discoveryResult.node_tips,
+        node_versions: discoveryResult.node_versions,
       };
 
       // Log queue message for debugging

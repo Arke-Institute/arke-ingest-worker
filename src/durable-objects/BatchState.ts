@@ -16,7 +16,7 @@ import type {
   BatchManifest,
   DiscoveryState,
   DiscoveryResult,
-  QueueMessage,
+  PreprocessorQueueMessage,
   Env,
 } from '../types';
 import {
@@ -172,8 +172,9 @@ export class BatchStateObject extends DurableObject<Env> {
       // Use provided config or default
       processing_config: pf.processing_config || {
         ocr: false,
-        describe: false,
         pinax: false,
+        cheimarros: false,
+        describe: false,
       },
     }));
 
@@ -313,7 +314,12 @@ export class BatchStateObject extends DurableObject<Env> {
       throw new Error('Manifest not found');
     }
 
-    const queueMessage: QueueMessage = {
+    const rootPi = discoveryState.node_pis['/'];
+    if (!rootPi) {
+      throw new Error('Root PI not found in discovery state');
+    }
+
+    const queueMessage: PreprocessorQueueMessage = {
       batch_id: state.batch_id,
       manifest_r2_key: `staging/${state.batch_id}/_manifest.json`,
       r2_prefix: `staging/${state.batch_id}/`,
@@ -328,7 +334,7 @@ export class BatchStateObject extends DurableObject<Env> {
       custom_prompts: state.custom_prompts,
 
       // Discovery results
-      root_pi: discoveryState.node_pis['/'],
+      root_pi: rootPi,
       node_pis: discoveryState.node_pis,
       node_tips: discoveryState.node_tips,
       node_versions: discoveryState.node_versions,

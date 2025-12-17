@@ -2,6 +2,8 @@
  * POST /api/batches/:batchId/enqueue-processed
  * Called by Cloud Run preprocessor after completing file transformations
  * Updates batch with processed files and enqueues to BATCH_QUEUE
+ *
+ * NEW: Builds PI tree for simplified orchestrator architecture
  */
 
 import type { Context } from 'hono';
@@ -10,8 +12,10 @@ import type {
   EnqueueProcessedRequest,
   EnqueueProcessedResponse,
   QueueMessage,
+  PINode,
   DirectoryGroup,
   BatchManifest,
+  ProcessingConfig,
 } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
 
@@ -29,6 +33,10 @@ export async function handleEnqueueProcessed(
 
     if (body.files.length === 0) {
       return c.json({ error: 'Files array cannot be empty' }, 400);
+    }
+
+    if (!body.root_pi || !body.node_pis) {
+      return c.json({ error: 'Missing entity tracking data (root_pi, node_pis)' }, 400);
     }
 
     // Get batch state
@@ -60,11 +68,10 @@ export async function handleEnqueueProcessed(
       0
     );
 
-    // Group files by directory
+    // Group files by directory to get processing config per directory
     const directoriesMap = new Map<string, DirectoryGroup>();
 
     for (const file of updatedState.files) {
-      // Extract directory from logical_path
       const lastSlash = file.logical_path.lastIndexOf('/');
       const directoryPath = lastSlash > 0
         ? file.logical_path.substring(0, lastSlash)
@@ -93,11 +100,10 @@ export async function handleEnqueueProcessed(
       });
     }
 
-    // Sort directories alphabetically for deterministic ordering
     const directories = Array.from(directoriesMap.values())
       .sort((a, b) => a.directory_path.localeCompare(b.directory_path));
 
-    // Create manifest object to store in R2
+    // Store manifest in R2 (for reference/debugging)
     const manifest: BatchManifest = {
       batch_id: batchId,
       directories: directories,
@@ -105,47 +111,36 @@ export async function handleEnqueueProcessed(
       total_bytes: totalBytes,
     };
 
-    // Store manifest in R2 (overwrites preprocessing manifest with processed version)
     const manifestKey = `staging/${batchId}/_manifest.json`;
     await c.env.STAGING_BUCKET.put(
       manifestKey,
       JSON.stringify(manifest, null, 2),
-      {
-        httpMetadata: {
-          contentType: 'application/json',
-        },
-      }
+      { httpMetadata: { contentType: 'application/json' } }
     );
 
-    // Build minimal queue message with manifest reference
+    // Build PI tree from discovery state
+    const pis = buildPITree(
+      body.node_pis,
+      body.root_pi,
+      directoriesMap,
+      updatedState.discovery_state
+    );
+
+    // Build simplified queue message for orchestrator
     const queueMessage: QueueMessage = {
       batch_id: batchId,
-      manifest_r2_key: manifestKey,
-      r2_prefix: `staging/${batchId}/`,
-      uploader: updatedState.uploader,
-      root_path: updatedState.root_path,
-      parent_pi: updatedState.parent_pi,
-      total_files: updatedState.files.length,
-      total_bytes: totalBytes,
-      uploaded_at: updatedState.created_at,
-      finalized_at: new Date().toISOString(),
-      metadata: updatedState.metadata,
-      custom_prompts: updatedState.custom_prompts,
-      // Entity tracking from Initial Discovery (passed through preprocessing)
       root_pi: body.root_pi,
-      node_pis: body.node_pis,
-      node_tips: body.node_tips,
-      node_versions: body.node_versions,
+      pis,
+      parent_pi: updatedState.parent_pi,
+      custom_prompts: updatedState.custom_prompts,
     };
 
     // Log queue message for debugging
     console.log('Sending to BATCH_QUEUE:', JSON.stringify({
       batch_id: batchId,
-      has_custom_prompts: !!updatedState.custom_prompts,
-      custom_prompts: updatedState.custom_prompts,
-      has_entity_tracking: !!body.root_pi,
       root_pi: body.root_pi,
-      node_count: body.node_pis ? Object.keys(body.node_pis).length : 0,
+      pi_count: pis.length,
+      has_custom_prompts: !!updatedState.custom_prompts,
     }, null, 2));
 
     // Send to batch queue
@@ -171,4 +166,78 @@ export async function handleEnqueueProcessed(
       details: error instanceof Error ? error.message : 'Unknown error',
     }, 500);
   }
+}
+
+/**
+ * Build PI tree from discovery state
+ * Converts path-based node tracking to PI-based tree structure
+ */
+function buildPITree(
+  nodePis: Record<string, string>,
+  _rootPi: string,
+  directoriesMap: Map<string, DirectoryGroup>,
+  discoveryState?: any
+): PINode[] {
+  const pis: PINode[] = [];
+
+  // Build path -> children map from discovery state or infer from paths
+  const pathChildren: Record<string, string[]> = {};
+
+  if (discoveryState?.nodes) {
+    // Use discovery state nodes for accurate parent/child relationships
+    for (const [path, node] of Object.entries(discoveryState.nodes as Record<string, any>)) {
+      pathChildren[path] = node.children_paths || [];
+    }
+  } else {
+    // Infer relationships from paths
+    const allPaths = Object.keys(nodePis).sort();
+    for (const path of allPaths) {
+      pathChildren[path] = [];
+    }
+    for (const path of allPaths) {
+      // Find parent path
+      const lastSlash = path.lastIndexOf('/');
+      if (lastSlash > 0) {
+        const parentPath = path.substring(0, lastSlash);
+        if (pathChildren[parentPath]) {
+          pathChildren[parentPath].push(path);
+        }
+      }
+    }
+  }
+
+  // Build PINode for each PI
+  for (const [path, pi] of Object.entries(nodePis)) {
+    // Get processing config from directory files
+    const dir = directoriesMap.get(path);
+    const config: ProcessingConfig = dir?.processing_config || {
+      ocr: true,
+      pinax: true,
+      cheimarros: true,
+      describe: true,
+    };
+
+    // Find parent PI
+    let parentPi: string | undefined;
+    const lastSlash = path.lastIndexOf('/');
+    if (lastSlash > 0) {
+      const parentPath = path.substring(0, lastSlash);
+      parentPi = nodePis[parentPath];
+    }
+
+    // Get children PIs
+    const childrenPaths = pathChildren[path] || [];
+    const childrenPi = childrenPaths
+      .map(childPath => nodePis[childPath])
+      .filter((pi): pi is string => !!pi);
+
+    pis.push({
+      pi,
+      parent_pi: parentPi,
+      children_pi: childrenPi,
+      processing_config: config,
+    });
+  }
+
+  return pis;
 }
