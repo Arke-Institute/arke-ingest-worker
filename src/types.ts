@@ -63,12 +63,41 @@ export type BatchStatus = 'uploading' | 'discovery' | 'preprocessing' | 'enqueue
 // Discovery State (Initial Discovery during finalization)
 // ============================================================================
 
-export type DiscoveryPhase = 'UPLOADING' | 'PUBLISHING' | 'RELATIONSHIPS' | 'DONE' | 'ERROR';
+export type DiscoveryPhase =
+  | 'UPLOADING'      // Upload original files, prepare chunk data
+  | 'CHUNKING'       // Upload chunk CIDs
+  | 'PUBLISHING'     // Create entities with components
+  | 'RELATIONSHIPS'  // Set parent-child relationships
+  | 'DONE'
+  | 'ERROR';
+
+/**
+ * A chunk of a text file, prepared during upload phase
+ */
+export interface DiscoveryChunk {
+  /** Chunk identifier (e.g., "chunk_0", "chunk_1") */
+  id: string;
+  /** Chunk text content */
+  text: string;
+  /** Start position in original file (0-indexed) */
+  char_start: number;
+  /** End position in original file (exclusive) */
+  char_end: number;
+  /** CID of chunk content (set after upload) */
+  cid?: string;
+}
 
 export interface DiscoveryTextFile {
   filename: string;
   r2_key: string;
-  cid?: string; // Set after upload to IPFS
+  /** Original file CID (set after upload) */
+  cid?: string;
+  /** Total character count of original file */
+  total_chars?: number;
+  /** Chunk data (if file was chunked) */
+  chunks?: DiscoveryChunk[];
+  /** True when all chunks have been uploaded */
+  chunks_uploaded?: boolean;
 }
 
 export interface DiscoveryNode {
@@ -93,9 +122,12 @@ export interface DiscoveryState {
   node_versions: Record<string, number>;
   phase: DiscoveryPhase;
   current_depth: number;
-  // Item-level tracking
+  // File tracking
   files_total: number;
   files_uploaded: number;
+  // Chunk tracking
+  chunks_total: number;
+  chunks_uploaded: number;
   error?: string;
   retry_count?: number;
 }

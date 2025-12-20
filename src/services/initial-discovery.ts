@@ -5,8 +5,9 @@
  * Returns root_pi immediately to clients.
  *
  * Uses operation-based batching to avoid subrequest limits:
- * - UPLOADING phase: Upload N files per alarm
- * - PUBLISHING phase: Create N entities per alarm
+ * - UPLOADING phase: Upload N files per alarm, prepare chunk data
+ * - CHUNKING phase: Upload chunk CIDs
+ * - PUBLISHING phase: Create N entities per alarm (includes chunks.json)
  * - RELATIONSHIPS phase: Attach to parent
  */
 
@@ -17,8 +18,16 @@ import type {
   DiscoveryNode,
   DiscoveryResult,
   DiscoveryTextFile,
+  DiscoveryChunk,
 } from '../types';
 import { IPFSWrapperClient } from './ipfs-wrapper';
+import {
+  chunkText,
+  shouldChunk,
+  buildChunksManifest,
+  DEFAULT_CHUNKING_CONFIG,
+  type ChunkResult,
+} from '../lib/chunking';
 
 // Text file extensions to upload to IPFS during initial discovery
 const TEXT_EXTENSIONS = new Set([
@@ -34,6 +43,7 @@ const TEXT_EXTENSIONS = new Set([
 // Batching configuration
 // Constraint: Cloudflare Workers allow 1000 subrequests per invocation (paid plan)
 const UPLOAD_BATCH_SIZE = 100; // Files to upload per alarm iteration
+const CHUNK_UPLOAD_BATCH_SIZE = 200; // Chunks to upload per alarm iteration (chunks are small)
 const ENTITY_BATCH_SIZE = 100; // Entities to create per alarm iteration
 
 /**
@@ -144,6 +154,9 @@ export function buildDiscoveryTree(manifest: BatchManifest): DiscoveryState {
     current_depth: maxDepth, // Start from deepest (bottom-up)
     files_total: totalFiles,
     files_uploaded: 0,
+    // Chunk tracking (updated during UPLOADING phase)
+    chunks_total: 0,
+    chunks_uploaded: 0,
   };
 }
 
@@ -168,8 +181,8 @@ function getFilesNeedingUpload(state: DiscoveryState): Array<{ node: DiscoveryNo
 }
 
 /**
- * Upload a batch of files to IPFS
- * Returns true if more files need uploading
+ * Upload a batch of files to IPFS and prepare chunk data
+ * Returns true if more work remains
  */
 export async function uploadFileBatch(
   state: DiscoveryState,
@@ -182,9 +195,14 @@ export async function uploadFileBatch(
   const pendingFiles = getFilesNeedingUpload(state).slice(0, batchSize);
 
   if (pendingFiles.length === 0) {
-    // All files uploaded, move to publishing phase
-    state.phase = 'PUBLISHING';
-    console.log(`[Discovery] All ${state.files_uploaded} files uploaded, moving to PUBLISHING phase`);
+    // All files uploaded, check if we need to upload chunks
+    if (state.chunks_total > 0) {
+      state.phase = 'CHUNKING';
+      console.log(`[Discovery] All ${state.files_uploaded} files uploaded, moving to CHUNKING phase (${state.chunks_total} chunks)`);
+    } else {
+      state.phase = 'PUBLISHING';
+      console.log(`[Discovery] All ${state.files_uploaded} files uploaded (no chunks), moving to PUBLISHING phase`);
+    }
     return true; // More work in next phase
   }
 
@@ -197,15 +215,40 @@ export async function uploadFileBatch(
         const obj = await env.STAGING_BUCKET.get(file.r2_key);
         if (obj) {
           const content = await obj.text();
+
+          // Upload original file
           const cid = await ipfsClient.uploadContent(content, file.filename);
           file.cid = cid;
+          file.total_chars = content.length;
           state.files_uploaded++;
-          console.log(`[Discovery] Uploaded ${node.path}/${file.filename} -> ${cid}`);
+
+          // Prepare chunks if file is large enough
+          if (shouldChunk(content.length, DEFAULT_CHUNKING_CONFIG)) {
+            const chunkResults = chunkText(content, DEFAULT_CHUNKING_CONFIG);
+
+            file.chunks = chunkResults.map((chunk: ChunkResult): DiscoveryChunk => ({
+              id: chunk.id,
+              text: chunk.text,
+              char_start: chunk.char_start,
+              char_end: chunk.char_end,
+              // cid will be set during CHUNKING phase
+            }));
+
+            state.chunks_total += file.chunks.length;
+            console.log(`[Discovery] Uploaded ${node.path}/${file.filename} -> ${cid} (${file.chunks.length} chunks prepared)`);
+          } else {
+            // File too small to chunk, mark as no chunks needed
+            file.chunks = [];
+            file.chunks_uploaded = true;
+            console.log(`[Discovery] Uploaded ${node.path}/${file.filename} -> ${cid} (no chunking needed)`);
+          }
         }
       } catch (error) {
         console.error(`[Discovery] Failed to upload ${file.filename}:`, error);
         // Mark as uploaded with empty CID to skip it
         file.cid = '';
+        file.chunks = [];
+        file.chunks_uploaded = true;
         state.files_uploaded++;
       }
     })
@@ -214,11 +257,104 @@ export async function uploadFileBatch(
   // Check if more files remain
   const remaining = getFilesNeedingUpload(state);
   if (remaining.length === 0) {
-    state.phase = 'PUBLISHING';
-    console.log(`[Discovery] All ${state.files_uploaded} files uploaded, moving to PUBLISHING phase`);
+    if (state.chunks_total > 0) {
+      state.phase = 'CHUNKING';
+      console.log(`[Discovery] All ${state.files_uploaded} files uploaded, moving to CHUNKING phase (${state.chunks_total} chunks)`);
+    } else {
+      state.phase = 'PUBLISHING';
+      console.log(`[Discovery] All ${state.files_uploaded} files uploaded (no chunks), moving to PUBLISHING phase`);
+    }
   }
 
   return true; // More work remains
+}
+
+/**
+ * Get all chunks that need uploading (CID not yet set)
+ */
+function getChunksNeedingUpload(state: DiscoveryState): Array<{ file: DiscoveryTextFile; chunk: DiscoveryChunk }> {
+  const chunks: Array<{ file: DiscoveryTextFile; chunk: DiscoveryChunk }> = [];
+
+  for (const node of Object.values(state.nodes)) {
+    for (const file of node.text_files) {
+      // Skip files that have no chunks or are already done
+      if (!file.chunks || file.chunks.length === 0 || file.chunks_uploaded) {
+        continue;
+      }
+
+      for (const chunk of file.chunks) {
+        // Only include chunks that haven't been uploaded yet
+        if (chunk.cid === undefined) {
+          chunks.push({ file, chunk });
+        }
+      }
+    }
+  }
+
+  return chunks;
+}
+
+/**
+ * Upload a batch of chunks to IPFS
+ * Returns true if more work remains
+ */
+export async function uploadChunkBatch(
+  state: DiscoveryState,
+  env: Env,
+  batchSize: number = CHUNK_UPLOAD_BATCH_SIZE
+): Promise<boolean> {
+  const ipfsClient = new IPFSWrapperClient(env.ARKE_IPFS_API);
+
+  const pendingChunks = getChunksNeedingUpload(state).slice(0, batchSize);
+
+  if (pendingChunks.length === 0) {
+    // All chunks uploaded, move to publishing phase
+    state.phase = 'PUBLISHING';
+    console.log(`[Discovery] All ${state.chunks_uploaded} chunks uploaded, moving to PUBLISHING phase`);
+    return true;
+  }
+
+  console.log(`[Discovery] Uploading ${pendingChunks.length} chunks (${state.chunks_uploaded}/${state.chunks_total} done)`);
+
+  // Upload chunks in parallel (within batch)
+  await Promise.all(
+    pendingChunks.map(async ({ file, chunk }) => {
+      try {
+        const cid = await ipfsClient.uploadContent(
+          chunk.text,
+          `${file.filename}#${chunk.id}`
+        );
+        chunk.cid = cid;
+        state.chunks_uploaded++;
+      } catch (error) {
+        console.error(`[Discovery] Failed to upload chunk ${file.filename}#${chunk.id}:`, error);
+        // Mark as failed with empty CID to skip it
+        chunk.cid = '';
+        state.chunks_uploaded++;
+      }
+    })
+  );
+
+  // Check if all chunks for each file are done
+  for (const node of Object.values(state.nodes)) {
+    for (const file of node.text_files) {
+      if (file.chunks && file.chunks.length > 0 && !file.chunks_uploaded) {
+        const allUploaded = file.chunks.every((c) => c.cid !== undefined);
+        if (allUploaded) {
+          file.chunks_uploaded = true;
+        }
+      }
+    }
+  }
+
+  // Check if more chunks remain
+  const remaining = getChunksNeedingUpload(state);
+  if (remaining.length === 0) {
+    state.phase = 'PUBLISHING';
+    console.log(`[Discovery] All ${state.chunks_uploaded} chunks uploaded, moving to PUBLISHING phase`);
+  }
+
+  return true;
 }
 
 /**
@@ -260,12 +396,41 @@ async function publishDirectory(
     }
   }
 
+  // Build chunks.json if any files were chunked
+  const chunkedFiles = node.text_files.filter(
+    (f) => f.chunks && f.chunks.length > 0 && f.cid && f.cid.length > 0
+  );
+
+  if (chunkedFiles.length > 0) {
+    const chunksManifestData = chunkedFiles.map((file) => ({
+      filename: file.filename,
+      original_cid: file.cid!,
+      total_chars: file.total_chars || 0,
+      chunks: (file.chunks || [])
+        .filter((c) => c.cid && c.cid.length > 0)
+        .map((c) => ({
+          id: c.id,
+          cid: c.cid!,
+          char_start: c.char_start,
+          char_end: c.char_end,
+          char_count: c.text.length,
+        })),
+    }));
+
+    const chunksManifest = buildChunksManifest(chunksManifestData, DEFAULT_CHUNKING_CONFIG);
+    const chunksJson = JSON.stringify(chunksManifest, null, 2);
+    const chunksCid = await ipfsClient.uploadContent(chunksJson, 'chunks.json');
+    components['chunks.json'] = chunksCid;
+
+    console.log(`[Discovery] Created chunks.json for ${node.path} with ${chunkedFiles.length} files`);
+  }
+
   // Get child PIs (children are processed first due to bottom-up order)
   const childPis: string[] = node.children_paths
     .map((path) => state.node_pis[path])
     .filter((pi): pi is string => !!pi);
 
-  // Create entity (v1 with text files and child relationships)
+  // Create entity (v1 with text files, chunks.json, and child relationships)
   const result = await ipfsClient.createEntity({
     type: 'PI',
     components,
@@ -284,8 +449,9 @@ async function publishDirectory(
   state.node_versions[node.path] = result.ver;
   state.directories_published++;
 
+  const chunkInfo = chunkedFiles.length > 0 ? `, chunks.json with ${chunkedFiles.length} files` : '';
   console.log(
-    `[Discovery] Published ${node.path}: PI=${result.id}, ${Object.keys(components).length} components, ${childPis.length} children`
+    `[Discovery] Published ${node.path}: PI=${result.id}, ${Object.keys(components).length} components${chunkInfo}, ${childPis.length} children`
   );
 }
 
@@ -344,6 +510,9 @@ export async function processDiscoveryBatch(
   switch (state.phase) {
     case 'UPLOADING':
       return uploadFileBatch(state, env, uploadBatchSize);
+
+    case 'CHUNKING':
+      return uploadChunkBatch(state, env, CHUNK_UPLOAD_BATCH_SIZE);
 
     case 'PUBLISHING':
       return publishDirectoryBatch(state, env, entityBatchSize);
@@ -519,12 +688,17 @@ export async function runSyncDiscovery(
     `[Discovery] Built tree with ${state.directories_total} nodes, ${state.files_total} files, max depth ${state.current_depth}`
   );
 
-  // Upload all files (large batch for sync)
+  // Upload all files and prepare chunks (large batch for sync)
   while (state.phase === 'UPLOADING') {
     await uploadFileBatch(state, env, 1000);
   }
 
-  // Publish all directories (large batch for sync)
+  // Upload all chunks (large batch for sync)
+  while (state.phase === 'CHUNKING') {
+    await uploadChunkBatch(state, env, 1000);
+  }
+
+  // Publish all directories with chunks.json (large batch for sync)
   while (state.phase === 'PUBLISHING') {
     await publishDirectoryBatch(state, env, 1000);
   }
@@ -537,7 +711,7 @@ export async function runSyncDiscovery(
     throw new Error('Discovery completed but root PI not found');
   }
 
-  console.log(`[Discovery] Sync discovery complete, root_pi: ${rootPi}`);
+  console.log(`[Discovery] Sync discovery complete, root_pi: ${rootPi}, ${state.chunks_total} chunks created`);
 
   return {
     root_pi: rootPi,

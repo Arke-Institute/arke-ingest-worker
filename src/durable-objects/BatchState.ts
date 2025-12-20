@@ -363,6 +363,8 @@ export class BatchStateObject extends DurableObject<Env> {
         current_depth: 0,
         files_total: 0,
         files_uploaded: 0,
+        chunks_total: 0,
+        chunks_uploaded: 0,
       };
       await this.ctx.storage.put('state', state);
     }
