@@ -19,7 +19,7 @@ export function validateBatchSize(size: number, maxSize: number): boolean {
 }
 
 /**
- * Validate logical path format
+ * Validate logical path format (for file paths - must have at least one segment)
  */
 export function validateLogicalPath(path: string): boolean {
   // Must start with /
@@ -45,6 +45,24 @@ export function validateLogicalPath(path: string): boolean {
   }
 
   return true;
+}
+
+/**
+ * Validate root path format (allows "/" for root-level uploads)
+ */
+export function validateRootPath(path: string): boolean {
+  // Must start with /
+  if (!path.startsWith('/')) {
+    return false;
+  }
+
+  // "/" alone is valid for root path
+  if (path === '/') {
+    return true;
+  }
+
+  // Otherwise validate like a logical path
+  return validateLogicalPath(path);
 }
 
 /**

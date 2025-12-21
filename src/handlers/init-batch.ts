@@ -7,7 +7,7 @@ import { ulid } from 'ulidx';
 import type { Context } from 'hono';
 import type { Env, InitBatchRequest, InitBatchResponse, BatchState } from '../types';
 import { getBatchStateStub } from '../lib/durable-object-helpers';
-import { validateBatchSize, validateLogicalPath, validateParentPi, checkParentPiExists, validateCustomPrompts, checkUploadPermission } from '../lib/validation';
+import { validateBatchSize, validateLogicalPath, validateRootPath, validateParentPi, checkParentPiExists, validateCustomPrompts, checkUploadPermission } from '../lib/validation';
 
 export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Response> {
   try {
@@ -20,7 +20,7 @@ export async function handleInitBatch(c: Context<{ Bindings: Env }>): Promise<Re
       return c.json({ error: 'Missing or invalid uploader' }, 400);
     }
 
-    if (!root_path || !validateLogicalPath(root_path)) {
+    if (!root_path || !validateRootPath(root_path)) {
       return c.json({ error: 'Missing or invalid root_path' }, 400);
     }
 
